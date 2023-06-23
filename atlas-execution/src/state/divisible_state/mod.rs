@@ -29,7 +29,7 @@ pub trait PartId: PartialEq + PartialOrd + Clone {
 }
 
 /// The abstraction for a divisible state, to be used by the state transfer protocol
-pub trait DivisibleStateDescriptor<S: DivisibleState>: Orderable + PartialEq + Clone + Send {
+pub trait DivisibleStateDescriptor<S: DivisibleState + ?Sized>: Orderable + PartialEq + Clone + Send {
 
     /// Get all the parts of the state
     fn parts(&self) -> &Vec<S::PartDescription>;
@@ -40,7 +40,7 @@ pub trait DivisibleStateDescriptor<S: DivisibleState>: Orderable + PartialEq + C
 }
 
 /// A part of the state
-pub trait StatePart<S: DivisibleState> {
+pub trait StatePart<S: DivisibleState + ?Sized> {
 
     fn descriptor(&self) -> S::PartDescription;
 
@@ -49,7 +49,7 @@ pub trait StatePart<S: DivisibleState> {
 ///
 /// The trait that represents a divisible state, to be used by the state transfer protocol
 ///
-pub trait DivisibleState {
+pub trait DivisibleState{
 
     #[cfg(feature = "serialize_serde")]
     type PartDescription: PartId + for<'a> Deserialize<'a> + Serialize + Send + Clone;

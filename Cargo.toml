@@ -18,7 +18,8 @@ members = [
     "atlas-client",
     "atlas-replica",
     "atlas-persistent-log",
-    "atlas-log-transfer"
+    "atlas-log-transfer",
+    "atlas-divisible-state"
 ]
 
 # https://doc.rust-lang.org/cargo/reference/profiles.html
