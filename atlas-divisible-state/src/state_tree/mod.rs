@@ -1,7 +1,8 @@
 use atlas_common::crypto::hash::*;
+use serde::{Serialize, Deserialize, ser::{SerializeMap, SerializeStruct}};
 use std::{
     collections::BTreeMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock}, cmp::Ordering,
 };
 
 // This Merkle tree is based on merkle mountain ranges
@@ -99,8 +100,9 @@ impl StateTree {
     pub fn bag_peaks(&self) -> Option<NodeRef> {
         let mut bagged_peaks: Vec<NodeRef> = Vec::new();
 
-        // according to mmr's description we should iterate in reverse, however this makes the tree more unbalanced
-        for peak in self.peaks.values() {
+        // Iterating in reverse makes the tree more unbalanced, but preserves the order of insertion,
+        // this is important when serializing or sending the tree since we send only the root digest and the leaves.
+        for peak in self.peaks.values().rev() {
             if let Some(top) = bagged_peaks.pop() {
                 let new_top = Node::internal(top, peak.clone());
                 bagged_peaks.push(Arc::new(RwLock::new(new_top)));
@@ -125,7 +127,7 @@ pub type NodeRef = Arc<RwLock<Node>>;
 // still need to consider if its worth it to have, since it won't be used for leafs
 // is also pretty much useless for updating the tree since we have to reset it.
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum Node {
     Leaf(LeafNode),
     Internal(InternalNode),
@@ -253,7 +255,7 @@ impl Node {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug,Serialize, Deserialize,Clone)]
 pub struct InternalNode {
     level: u32,
     // pids that are authenticated by the left and right child node, ordered left to right.
@@ -335,11 +337,59 @@ impl InternalNode {
     }
 }
 
-#[derive(Debug, Clone)]
+impl PartialEq for InternalNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.digest == other.digest
+    }
+}
+
+impl PartialOrd for InternalNode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.level.partial_cmp(&other.level) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.left_pids.partial_cmp(&other.left_pids) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.right_pids.partial_cmp(&other.right_pids) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.digest.partial_cmp(&other.digest) {
+            Some(core::cmp::Ordering::Equal) => Some(Ordering::Equal),
+            ord => return ord,
+        }
+      
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode {
     pub pid: u64,
     pub digest: Digest,
     removed: bool,
+}
+
+impl PartialEq for LeafNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.digest == other.digest && self.removed == other.removed
+    }
+}
+
+impl PartialOrd for LeafNode {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.pid.partial_cmp(&other.pid) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.digest.partial_cmp(&other.digest) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        self.removed.partial_cmp(&other.removed)
+    }
 }
 
 impl LeafNode {

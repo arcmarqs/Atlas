@@ -1,10 +1,8 @@
 use std::{sync::{atomic::{AtomicUsize, Ordering}, Arc, RwLock, Mutex}, collections::BTreeMap};
 
 use atlas_common::crypto::hash::{Context, Digest};
-use atlas_execution::state::divisible_state::DivisibleState;
 use sled::{NodeEvent, Db, Mode, Config, Subscriber, EventType};
-
-use crate::state_tree::{StateTree, LeafNode, Node};
+use crate::{state_tree::{StateTree, LeafNode, Node}, SerializedTree};
 
 const UPDATE_SIZE: usize = 5000;
 
@@ -147,31 +145,16 @@ impl StateOrchestrator {
     pub fn get_page(&self, pid: u64) -> sled::Node {
         self.db.export_node(pid).unwrap()
     }
-}
 
-impl DivisibleState for StateOrchestrator {
-    type PartDescription = Node;
-
-    type StateDescriptor = StateTree;
-
-    type StatePart;
-
-    fn get_descriptor(&self) -> &Self::StateDescriptor {
-        todo!()
+    pub fn get_descriptor(&self) -> SerializedTree {
+        self.orchestrator.tree.lock().unwrap().full_serialized_tree()
     }
 
-    fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
-        todo!()
-    }
-
-    fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<&Self::StateDescriptor> {
-        todo!()
-    }
-
-    fn get_parts(&self, parts: &Vec<Self::PartDescription>) -> atlas_common::error::Result<Vec<Self::StatePart>> {
-        todo!()
+    pub fn get_partial_descriptor(&self, node: Arc<RwLock<Node>>) -> SerializedTree {
+        self.orchestrator.tree.lock().unwrap().to_serialized_tree(node)
     }
 }
+
 pub async fn monitor_changes(state: Arc<StateDescriptor>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
