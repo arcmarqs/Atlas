@@ -4,10 +4,10 @@ use atlas_common::crypto::hash::{Context, Digest};
 use sled::{NodeEvent, Db, Mode, Config, Subscriber, EventType};
 use crate::{state_tree::{StateTree, LeafNode, Node}, SerializedTree};
 
-const UPDATE_SIZE: usize = 5000;
+const UPDATE_SIZE: u32 = 5000;
 
 pub struct StateDescriptor {
-    update_counter: AtomicUsize,
+    update_counter: u32,
     updates: Arc<RwLock<BTreeMap<u64,NodeEvent>>>,
     tree: Arc<Mutex<StateTree>>,
 }
@@ -19,17 +19,17 @@ impl StateDescriptor {
        Self {
             updates: Arc::new(RwLock::new(BTreeMap::default())),
             tree: Arc::new(Mutex::new(StateTree::init())),
-            update_counter: AtomicUsize::new(0),
+            update_counter: 0,
         }
     }
 
     fn insert(&self, key: u64, value: NodeEvent) {
         if let Ok(mut lock) = self.updates.write() {
             lock.insert(key, value);
-            self.update_counter.fetch_add(1, Ordering::SeqCst);
+            self.update_counter.wrapping_add(1);
         }
 
-        if self.update_counter.load(Ordering::SeqCst) >= UPDATE_SIZE {
+        if self.update_counter >= UPDATE_SIZE {
             self.flush();
         }
     }
@@ -37,7 +37,7 @@ impl StateDescriptor {
     fn merged(&self, key: u64) {
         if let Ok(mut lock) = self.updates.write() {
             lock.remove(&key);
-            self.update_counter.fetch_add(1, Ordering::SeqCst);
+            self.update_counter.wrapping_add(1);
             self.tree.lock().unwrap().set_removed(key);
         }
     }
@@ -47,9 +47,10 @@ impl StateDescriptor {
         let mut tree_lock = self.tree.lock().unwrap();
         for (key, node) in lock.iter() {
             let hash = Digest::from_bytes(node.hash().as_bytes()).unwrap();
-            tree_lock.insert(key.clone(), hash)
+            tree_lock.insert(tree_lock.seqno, key.clone(), hash)
         }
-        self.update_counter.store(0, Ordering::SeqCst);
+        self.update_counter = 0;
+        tree_lock.seqno = tree_lock.seqno.next();
         lock.clear();
     }
 
@@ -58,7 +59,7 @@ impl StateDescriptor {
 
 pub struct StateOrchestrator {
     pub db: Db,
-    pub orchestrator: Arc<StateDescriptor>,
+    pub descriptor: Arc<StateDescriptor>,
 }
 
 impl StateOrchestrator {
@@ -72,11 +73,11 @@ impl StateOrchestrator {
 
         let db = conf.open().unwrap(); 
         
-        let orchestrator = Arc::new(StateDescriptor::new());
+        let descriptor = Arc::new(StateDescriptor::new());
        
        Self {
-            db:db,
-            orchestrator: orchestrator,
+            db,
+            descriptor,
         }
     }
 
@@ -134,7 +135,7 @@ impl StateOrchestrator {
     }
 
     pub fn print_mktree(&self) {
-        let tree_lock = self.orchestrator.tree.lock().unwrap();
+        let tree_lock = self.descriptor.tree.lock().unwrap();
         let root = tree_lock.bag_peaks();
 
         println!("root: {:?}", root);
@@ -142,16 +143,24 @@ impl StateOrchestrator {
         println!("total leaves: {:?}", tree_lock.leaves.len());
     }
 
-    pub fn get_page(&self, pid: u64) -> sled::Node {
-        self.db.export_node(pid).unwrap()
+    pub fn get_page(&self, pid: u64) -> Option<sled::Node> {
+        self.db.export_node(pid)
     }
 
-    pub fn get_descriptor(&self) -> SerializedTree {
-        self.orchestrator.tree.lock().unwrap().full_serialized_tree()
+    pub fn import_page(&self, pid: u64, node: sled::Node) -> Result<(),()> {
+        if let Ok(()) = self.db.import_node(pid,&node) {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
 
-    pub fn get_partial_descriptor(&self, node: Arc<RwLock<Node>>) -> SerializedTree {
-        self.orchestrator.tree.lock().unwrap().to_serialized_tree(node)
+    pub fn get_descriptor(&self) -> Result<SerializedTree, ()> {
+        self.descriptor.tree.lock().unwrap().full_serialized_tree()
+    }
+
+    pub fn get_partial_descriptor(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()> {
+        self.descriptor.tree.lock().unwrap().to_serialized_tree(node)
     }
 }
 

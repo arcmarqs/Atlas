@@ -1,4 +1,4 @@
-use atlas_common::crypto::hash::*;
+use atlas_common::{crypto::hash::*, ordering::SeqNo};
 use serde::{Serialize, Deserialize, ser::{SerializeMap, SerializeStruct}};
 use std::{
     collections::BTreeMap,
@@ -13,6 +13,8 @@ use std::{
 
 #[derive(Debug)]
 pub struct StateTree {
+    // Sequence number of the latest update in the tree.
+    pub seqno: SeqNo,
     // Stores the peaks by level, every time a new peak of the same level is inserted, a new internal node with level +1 is created.
     pub peaks: BTreeMap<u32, NodeRef>,
     // stores references to all leaves, ordered by the page id
@@ -22,13 +24,14 @@ pub struct StateTree {
 impl StateTree {
     pub fn init() -> Self {
         Self {
+            seqno: SeqNo::ONE,
             peaks: BTreeMap::new(),
             leaves: BTreeMap::new(),
         }
     }
 
-    pub fn insert(&mut self, pid: u64, digest: Digest) {
-        let new_leaf = Arc::new(RwLock::new(Node::leaf(pid, digest)));
+    pub fn insert(&mut self,seqno: SeqNo, pid: u64, digest: Digest) {
+        let new_leaf = Arc::new(RwLock::new(Node::leaf(seqno, pid, digest)));
         if let Some(_) = self.leaves.insert(pid, new_leaf.clone()) {
             for peak in self.peaks.values().rev().cloned() {
                 let contains_pid = peak.read().unwrap().contains_pid(pid);
@@ -139,8 +142,8 @@ impl Node {
         Node::Empty
     }
 
-    pub fn leaf(pid: u64, digest: Digest) -> Node {
-        let leaf_node = LeafNode::new(pid, digest);
+    pub fn leaf(seqno: SeqNo, pid: u64, digest: Digest) -> Node {
+        let leaf_node = LeafNode::new(seqno, pid, digest);
         Node::Leaf(leaf_node)
     }
 
@@ -367,6 +370,7 @@ impl PartialOrd for InternalNode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode {
+    seqno: SeqNo,
     pub pid: u64,
     pub digest: Digest,
     removed: bool,
@@ -379,7 +383,11 @@ impl PartialEq for LeafNode {
 }
 
 impl PartialOrd for LeafNode {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self.seqno.partial_cmp(&other.seqno) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
         match self.pid.partial_cmp(&other.pid) {
             Some(core::cmp::Ordering::Equal) => {}
             ord => return ord,
@@ -393,8 +401,9 @@ impl PartialOrd for LeafNode {
 }
 
 impl LeafNode {
-    pub fn new(pid: u64, digest: Digest) -> Self {
+    pub fn new(seqno: SeqNo, pid: u64, digest: Digest) -> Self {
         Self {
+            seqno,
             pid,
             digest,
             removed: false,

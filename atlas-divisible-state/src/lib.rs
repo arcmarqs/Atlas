@@ -1,7 +1,8 @@
 use std::sync::{RwLock, Arc};
 
+use atlas_common::error::Error;
 use atlas_common::{crypto::hash::Digest, ordering::Orderable};
-use atlas_common::ordering;
+use atlas_common::ordering::{self, SeqNo};
 use atlas_execution::state::divisible_state::{StatePart, DivisibleState, PartId, DivisibleStateDescriptor};
 use serde::{Serialize, Deserialize};
 use sled::Serialize as sled_serialize;
@@ -16,7 +17,6 @@ pub struct SerializedState {
     pid: u64,
     bytes: Vec<u8>
 }
-
 
 impl SerializedState{
     pub fn from_node(pid: u64,node: sled::Node) -> Self {
@@ -36,22 +36,24 @@ impl SerializedState{
 
 impl <S>StatePart<S> for SerializedState where S: DivisibleState + ?Sized {
     fn descriptor(&self) -> S::PartDescription {
-        
+        todo!()
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedTree {
     root_digest: Digest,
+    seqno: SeqNo,
 
     // the leaves that make this merke tree, they must be in order.
     leaves: Vec<LeafNode>,
 }
 
 impl SerializedTree {
-    pub fn new(digest: Digest, leaves: Vec<LeafNode>) -> Self {
+    pub fn new(digest: Digest, seqno: SeqNo, leaves: Vec<LeafNode>) -> Self {
         Self {
             root_digest: digest,
+            seqno,
             leaves,
         }
     }
@@ -69,7 +71,7 @@ impl PartialEq for SerializedTree {
 
 impl Orderable for SerializedTree {
     fn sequence_number(&self) -> ordering::SeqNo {
-        todo!()
+        self.seqno
     }
 }
 
@@ -87,7 +89,7 @@ impl StateTree {
             }
             vec
         };
-        Ok(SerializedTree::new(digest,leaf_list))
+        Ok(SerializedTree::new(digest,self.seqno,leaf_list))
 
     }
 
@@ -101,13 +103,20 @@ impl StateTree {
     }
 }
 
-
-impl <S>DivisibleStateDescriptor<S> for SerializedTree where S: DivisibleState + ?Sized{
-    fn parts(&self) -> &Vec<S::PartDescription> {
+impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree
+{
+    
+    fn parts(&self) -> &Vec<LeafNode> {
+       &self.leaves
     }
 
-    fn compare_descriptors(&self, other: &Self) -> Vec<S::PartDescription> {
-        todo!()
+    // compare state descriptors and return different parts
+    fn compare_descriptors(&self, other: &Self) -> Vec<LeafNode> {
+        let mut diff_parts = Vec::new();
+        if self.root_digest != other.root_digest {
+        } 
+
+        diff_parts
     }
 }
 
@@ -118,28 +127,43 @@ impl PartId for LeafNode {
 }
 
 impl DivisibleState for StateOrchestrator {
-
     type PartDescription = LeafNode;
 
     type StateDescriptor = SerializedTree;
 
     type StatePart = SerializedState;
 
-
     fn get_descriptor(&self) -> &Self::StateDescriptor {
-        self.orchestrator.
+        &self.get_descriptor().unwrap()
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
-        todo!()
+        for part in parts {
+            if let Err(()) = self.import_page(part.pid, part.to_node()) {
+                panic!("Failed to import Page");
+            }
+        }
+
+        Ok(())
     }
 
     fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<&Self::StateDescriptor> {
         todo!()
     }
 
-    fn get_parts(&self, parts: &Vec<Self::PartDescription>) -> atlas_common::error::Result<Vec<Self::StatePart>> {
-        todo!()
-    }
+    fn get_parts(
+        &self,
+        parts: &Vec<Self::PartDescription>,
+    ) -> atlas_common::error::Result<Vec<Self::StatePart>> {
+        let mut state_parts = Vec::new();
+        for part in parts {
+            if let Some(node) = self.get_page(part.pid) {
+                let serialized_part = SerializedState::from_node(part.pid, node);
 
+                state_parts.push(serialized_part);
+            }
+        }
+
+        Ok(state_parts)
+    }
 }
