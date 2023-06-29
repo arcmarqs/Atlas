@@ -42,7 +42,7 @@ pub trait DivisibleStateDescriptor<S: DivisibleState + ?Sized>: Orderable + Part
 /// A part of the state
 pub trait StatePart<S: DivisibleState + ?Sized> {
 
-    fn descriptor(&self) -> S::PartDescription;
+    fn descriptor(&self,state: S::StateDescriptor ) -> S::PartDescription;
 
 }
 

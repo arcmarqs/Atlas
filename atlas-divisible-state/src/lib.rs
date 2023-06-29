@@ -6,7 +6,7 @@ use atlas_common::ordering::{self, SeqNo};
 use atlas_execution::state::divisible_state::{StatePart, DivisibleState, PartId, DivisibleStateDescriptor};
 use serde::{Serialize, Deserialize};
 use sled::Serialize as sled_serialize;
-use state_orchestrator::StateOrchestrator;
+use state_orchestrator::{StateOrchestrator, StateDescriptor};
 use state_tree::{StateTree, Node, LeafNode};
 
 pub mod state_orchestrator;
@@ -34,9 +34,9 @@ impl SerializedState{
     }
 }
 
-impl <S>StatePart<S> for SerializedState where S: DivisibleState + ?Sized {
-    fn descriptor(&self) -> S::PartDescription {
-        todo!()
+impl StatePart<StateOrchestrator> for SerializedState {
+    fn descriptor(&self, state: SerializedTree) -> LeafNode {
+       state.descriptor.get_leaf(self.pid)
     }
 }
 
@@ -45,15 +45,19 @@ pub struct SerializedTree {
     root_digest: Digest,
     seqno: SeqNo,
 
+    // used to get access to the actual merkle tree
+    #[serde(skip_serializing, skip_deserializing)]
+    descriptor: Arc<StateDescriptor>,
     // the leaves that make this merke tree, they must be in order.
     leaves: Vec<LeafNode>,
 }
 
 impl SerializedTree {
-    pub fn new(digest: Digest, seqno: SeqNo, leaves: Vec<LeafNode>) -> Self {
+    pub fn new(digest: Digest, seqno: SeqNo, descriptor: Arc<StateDescriptor>, leaves: Vec<LeafNode>) -> Self {
         Self {
             root_digest: digest,
             seqno,
+            descriptor,
             leaves,
         }
     }
@@ -76,7 +80,7 @@ impl Orderable for SerializedTree {
 }
 
 impl StateTree {
-    pub fn to_serialized_tree(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()>{
+    pub fn to_serialized_tree(&self, descriptor: Arc<StateDescriptor>, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()>{
         let node_read = node.read().unwrap();
         let digest = node_read.get_hash();
         let pids = node_read.get_pids_concat();
@@ -89,23 +93,21 @@ impl StateTree {
             }
             vec
         };
-        Ok(SerializedTree::new(digest,self.seqno,leaf_list))
+        Ok(SerializedTree::new(digest,self.seqno,descriptor,leaf_list))
 
     }
 
-    pub fn full_serialized_tree(&self) -> Result<SerializedTree, ()> {
+    pub fn full_serialized_tree(&self, descriptor: Arc<StateDescriptor>) -> Result<SerializedTree, ()> {
         let root = self.bag_peaks();
         if let Some(root) = root {
-            self.to_serialized_tree(root)
+            self.to_serialized_tree(descriptor, root)
         } else {
             Err(())
         }
     }
 }
 
-impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree
-{
-    
+impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
     fn parts(&self) -> &Vec<LeafNode> {
        &self.leaves
     }
@@ -114,7 +116,29 @@ impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree
     fn compare_descriptors(&self, other: &Self) -> Vec<LeafNode> {
         let mut diff_parts = Vec::new();
         if self.root_digest != other.root_digest {
-        } 
+            if self.leaves.len() >= other.leaves.len() {
+                for (index,leaf) in self.leaves.iter().enumerate() {
+                    if let Some(other_leaf) = other.leaves.get(index) {
+                        if other_leaf.digest != leaf.digest {
+                            diff_parts.push(leaf.clone());
+                        }
+                    } else {
+                        diff_parts.push(leaf.clone());
+                    }
+                }
+            } else {
+                for (index,other_leaf) in other.leaves.iter().enumerate() {
+                    if let Some(leaf) = self.leaves.get(index) {
+                        if other_leaf.digest != leaf.digest {
+                            diff_parts.push(other_leaf.clone());
+                        }
+                    } else {
+                        diff_parts.push(other_leaf.clone());
+                    }
+                }
+            }
+            
+        }
 
         diff_parts
     }
@@ -148,6 +172,7 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<&Self::StateDescriptor> {
+        // need to see how to handle snapshots of the state with sled
         todo!()
     }
 

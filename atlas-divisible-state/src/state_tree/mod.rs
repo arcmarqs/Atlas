@@ -21,6 +21,12 @@ pub struct StateTree {
     pub leaves: BTreeMap<u64, NodeRef>,
 }
 
+impl Default for StateTree  {
+    fn default() -> Self {
+        Self { seqno: SeqNo::ONE, peaks: Default::default(), leaves: Default::default() }
+    }
+}
+
 impl StateTree {
     pub fn init() -> Self {
         Self {

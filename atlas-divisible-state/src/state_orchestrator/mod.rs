@@ -6,6 +6,7 @@ use crate::{state_tree::{StateTree, LeafNode, Node}, SerializedTree};
 
 const UPDATE_SIZE: u32 = 5000;
 
+#[derive(Debug,Default)]
 pub struct StateDescriptor {
     update_counter: u32,
     updates: Arc<RwLock<BTreeMap<u64,NodeEvent>>>,
@@ -54,6 +55,16 @@ impl StateDescriptor {
         lock.clear();
     }
 
+    pub fn get_leaf(&self, pid: u64) -> LeafNode {
+        self.tree.lock().unwrap().get_leaf(pid)
+    }
+
+    // compares the leaves given with the leaves in the current tree, returns the different leaves.
+    pub fn tree_diff(&self, leaves: Vec<LeafNode>) -> Vec<Node> {
+
+        todo!()
+    }
+
 }
 
 
@@ -78,6 +89,11 @@ impl StateOrchestrator {
        Self {
             db,
             descriptor,
+        }
+    }
+
+    pub fn checkpoint(&self) {
+        for tree_name in self.db.tree_names() {
         }
     }
 
@@ -156,11 +172,11 @@ impl StateOrchestrator {
     }
 
     pub fn get_descriptor(&self) -> Result<SerializedTree, ()> {
-        self.descriptor.tree.lock().unwrap().full_serialized_tree()
+        self.descriptor.tree.lock().unwrap().full_serialized_tree(self.descriptor.clone())
     }
 
     pub fn get_partial_descriptor(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()> {
-        self.descriptor.tree.lock().unwrap().to_serialized_tree(node)
+        self.descriptor.tree.lock().unwrap().to_serialized_tree(self.descriptor.clone(), node)
     }
 }
 
