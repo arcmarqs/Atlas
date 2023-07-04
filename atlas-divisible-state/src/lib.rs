@@ -20,12 +20,9 @@ pub struct SerializedState {
 
 impl SerializedState{
     pub fn from_node(pid: u64,node: sled::Node) -> Self {
-        let size = sled_serialize::serialized_size(&node);
-        let mut buf : Vec<u8> = Vec::new();
-        sled_serialize::serialize_into(&node,&mut buf.as_mut_slice());
         Self{
             pid,
-            bytes: buf,
+            bytes: sled_serialize::serialize(&node),
         }
     }
 
@@ -116,7 +113,7 @@ impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
     fn compare_descriptors(&self, other: &Self) -> Vec<LeafNode> {
         let mut diff_parts = Vec::new();
         if self.root_digest != other.root_digest {
-            if self.leaves.len() >= other.leaves.len() {
+            if self.seqno >= other.seqno {
                 for (index,leaf) in self.leaves.iter().enumerate() {
                     if let Some(other_leaf) = other.leaves.get(index) {
                         if other_leaf.digest != leaf.digest {
@@ -172,8 +169,12 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<&Self::StateDescriptor> {
-        // need to see how to handle snapshots of the state with sled
-        todo!()
+        // need to see how to handle snapshots of the state with sled'
+        if let Ok(descriptor) = self.get_descriptor() {
+            Ok(&descriptor)
+        } else {
+            Err(atlas_common::error::Error::simple(atlas_common::error::ErrorKind::Persistentdb))
+        }
     }
 
     fn get_parts(

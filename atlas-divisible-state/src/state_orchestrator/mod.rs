@@ -1,4 +1,4 @@
-use std::{sync::{atomic::{AtomicUsize, Ordering}, Arc, RwLock, Mutex}, collections::BTreeMap};
+use std::{sync::{Arc, RwLock, Mutex}, collections::BTreeMap};
 
 use atlas_common::crypto::hash::{Context, Digest};
 use sled::{NodeEvent, Db, Mode, Config, Subscriber, EventType};
@@ -58,13 +58,6 @@ impl StateDescriptor {
     pub fn get_leaf(&self, pid: u64) -> LeafNode {
         self.tree.lock().unwrap().get_leaf(pid)
     }
-
-    // compares the leaves given with the leaves in the current tree, returns the different leaves.
-    pub fn tree_diff(&self, leaves: Vec<LeafNode>) -> Vec<Node> {
-
-        todo!()
-    }
-
 }
 
 
@@ -89,11 +82,6 @@ impl StateOrchestrator {
        Self {
             db,
             descriptor,
-        }
-    }
-
-    pub fn checkpoint(&self) {
-        for tree_name in self.db.tree_names() {
         }
     }
 
