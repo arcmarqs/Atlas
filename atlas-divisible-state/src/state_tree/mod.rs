@@ -140,14 +140,9 @@ pub type NodeRef = Arc<RwLock<Node>>;
 pub enum Node {
     Leaf(LeafNode),
     Internal(InternalNode),
-    Empty,
 }
 
 impl Node {
-    pub fn empty() -> Node {
-        Node::Empty
-    }
-
     pub fn leaf(seqno: SeqNo, pid: u64, digest: Digest) -> Node {
         let leaf_node = LeafNode::new(seqno, pid, digest);
         Node::Leaf(leaf_node)
@@ -162,7 +157,6 @@ impl Node {
         match self {
             Node::Leaf(_) => 0,
             Node::Internal(internal) => internal.get_level(),
-            Node::Empty => 0,
         }
     }
 
@@ -170,7 +164,6 @@ impl Node {
         match self {
             Node::Leaf(leaf) => vec![leaf.pid],
             Node::Internal(internal) => internal.get_right_pids().to_owned(),
-            Node::Empty => vec![],
         }
     }
 
@@ -178,7 +171,6 @@ impl Node {
         match self {
             Node::Leaf(leaf) => vec![leaf.pid],
             Node::Internal(internal) => internal.get_left_pids().to_owned(),
-            Node::Empty => vec![],
         }
     }
 
@@ -186,7 +178,6 @@ impl Node {
         match self {
             Node::Leaf(leaf) => leaf.get_digest(),
             Node::Internal(internal) => internal.get_hash(),
-            Node::Empty => Digest::blank(),
         }
     }
 
@@ -198,7 +189,6 @@ impl Node {
                 internal.get_right_pids().to_owned(),
             ]
             .concat(),
-            Node::Empty => vec![],
         }
     }
 
@@ -209,7 +199,6 @@ impl Node {
             Node::Internal(internal) => {
                 internal.left_pids.contains(&pid) || internal.right_pids.contains(&pid)
             }
-            Node::Empty => false,
         }
     }
 
@@ -238,7 +227,6 @@ impl Node {
                 internal.digest = hasher.finish();
                 internal.digest
             }
-            Node::Empty => todo!(),
         }
     }
 
@@ -252,7 +240,6 @@ impl Node {
                     internal.right.write().unwrap().set_removed(pid);
                 }
             }
-            Node::Empty => todo!(),
         }
     }
 

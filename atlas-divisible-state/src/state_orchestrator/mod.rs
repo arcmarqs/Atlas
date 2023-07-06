@@ -1,4 +1,4 @@
-use std::{sync::{Arc, RwLock, Mutex}, collections::BTreeMap};
+use std::{sync::{Arc, RwLock, Mutex, atomic::{Ordering, AtomicU32}}, collections::BTreeMap};
 
 use atlas_common::crypto::hash::{Context, Digest};
 use sled::{NodeEvent, Db, Mode, Config, Subscriber, EventType};
@@ -6,9 +6,9 @@ use crate::{state_tree::{StateTree, LeafNode, Node}, SerializedTree};
 
 const UPDATE_SIZE: u32 = 5000;
 
-#[derive(Debug,Default)]
+#[derive(Debug, Default)]
 pub struct StateDescriptor {
-    update_counter: u32,
+    update_counter: AtomicU32,
     updates: Arc<RwLock<BTreeMap<u64,NodeEvent>>>,
     tree: Arc<Mutex<StateTree>>,
 }
@@ -20,17 +20,17 @@ impl StateDescriptor {
        Self {
             updates: Arc::new(RwLock::new(BTreeMap::default())),
             tree: Arc::new(Mutex::new(StateTree::init())),
-            update_counter: 0,
+            update_counter: AtomicU32::new(0),
         }
     }
 
     fn insert(&self, key: u64, value: NodeEvent) {
         if let Ok(mut lock) = self.updates.write() {
             lock.insert(key, value);
-            self.update_counter.wrapping_add(1);
+            self.update_counter.fetch_add(1, Ordering::SeqCst);
         }
 
-        if self.update_counter >= UPDATE_SIZE {
+        if self.update_counter.load(Ordering::SeqCst) >= UPDATE_SIZE {
             self.flush();
         }
     }
@@ -38,19 +38,21 @@ impl StateDescriptor {
     fn merged(&self, key: u64) {
         if let Ok(mut lock) = self.updates.write() {
             lock.remove(&key);
-            self.update_counter.wrapping_add(1);
+            self.update_counter.fetch_add(1, Ordering::SeqCst);
             self.tree.lock().unwrap().set_removed(key);
         }
     }
 
+
     fn flush(&self) {
         let mut lock = self.updates.write().unwrap();
         let mut tree_lock = self.tree.lock().unwrap();
+        let seqno = tree_lock.seqno;
         for (key, node) in lock.iter() {
             let hash = Digest::from_bytes(node.hash().as_bytes()).unwrap();
-            tree_lock.insert(tree_lock.seqno, key.clone(), hash)
+            tree_lock.insert(seqno, key.clone(), hash);
         }
-        self.update_counter = 0;
+        self.update_counter.store(0, Ordering::SeqCst);
         tree_lock.seqno = tree_lock.seqno.next();
         lock.clear();
     }
@@ -59,7 +61,6 @@ impl StateDescriptor {
         self.tree.lock().unwrap().get_leaf(pid)
     }
 }
-
 
 pub struct StateOrchestrator {
     pub db: Db,
@@ -152,7 +153,7 @@ impl StateOrchestrator {
     }
 
     pub fn import_page(&self, pid: u64, node: sled::Node) -> Result<(),()> {
-        if let Ok(()) = self.db.import_node(pid,&node) {
+        if let Ok(()) = self.db.import_node(pid,node) {
             Ok(())
         } else {
             Err(())
