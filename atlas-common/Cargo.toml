@@ -25,7 +25,6 @@ default = [
     "crypto_signature_ring_ed25519",
     "crypto_hash_blake3_blake3",
     "collections_randomstate_fxhash",
-    "persistent_db_rocksdb"
 ]
 
 #Async socket alternatives, choose one
@@ -134,3 +133,6 @@ log4rs = { version = "1.1.1", features = ["file_appender"] }
 thiserror = "1.0.32"
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
+
+[dependencies.sled]
+path = "../../sled"

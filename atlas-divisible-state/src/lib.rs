@@ -1,11 +1,12 @@
 use std::sync::{RwLock, Arc};
 
+use atlas_common::crypto::hash::Context;
 use atlas_common::error::Error;
 use atlas_common::{crypto::hash::Digest, ordering::Orderable};
 use atlas_common::ordering::{self, SeqNo};
 use atlas_execution::state::divisible_state::{StatePart, DivisibleState, PartId, DivisibleStateDescriptor};
 use serde::{Serialize, Deserialize};
-use sled::Serialize as sled_serialize;
+use sled::{Serialize as sled_serialize, NodeEvent, IVec};
 use state_orchestrator::{StateOrchestrator, StateDescriptor};
 use state_tree::{StateTree, Node, LeafNode};
 
@@ -33,7 +34,7 @@ impl SerializedState{
 
 impl StatePart<StateOrchestrator> for SerializedState {
     fn descriptor(&self, state: SerializedTree) -> LeafNode {
-       state.descriptor.get_leaf(self.pid)
+        state.descriptor.get_leaf(self.pid)
     }
 }
 
@@ -154,8 +155,8 @@ impl DivisibleState for StateOrchestrator {
 
     type StatePart = SerializedState;
 
-    fn get_descriptor(&self) -> &Self::StateDescriptor {
-        &self.get_descriptor().unwrap()
+    fn get_descriptor(&self) -> Self::StateDescriptor {
+        self.get_descriptor().unwrap().clone()
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
@@ -168,10 +169,10 @@ impl DivisibleState for StateOrchestrator {
         Ok(())
     }
 
-    fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<&Self::StateDescriptor> {
+    fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<Self::StateDescriptor> {
         // need to see how to handle snapshots of the state with sled'
         if let Ok(descriptor) = self.get_descriptor() {
-            Ok(&descriptor)
+            Ok(descriptor.clone())
         } else {
             Err(atlas_common::error::Error::simple(atlas_common::error::ErrorKind::Persistentdb))
         }

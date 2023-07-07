@@ -122,7 +122,7 @@ impl<S, D, OPM, SOPM, POP, PSP> DivStatePersistentLogWorker<S, D, OPM, SOPM, POP
         Ok(
             match message {
                 DivisibleStateMessage::Parts(part) => {
-                    write_state_parts(&self.db, &part)?;
+                    write_state_parts(&self.db,&part)?;
 
                     ResponseMessage::RegisteredCallback
                 }
@@ -156,7 +156,7 @@ fn write_state_parts<S: DivisibleState>(
     parts: &Vec<S::StatePart>,
 ) -> Result<()> {
     for state_part in parts {
-        let part_desc = state_part.descriptor();
+        let part_desc = state_part.descriptor(descriptor);
 
         let mut key = Vec::new();
 
@@ -188,7 +188,7 @@ fn write_state_parts_and_descriptor<S: DivisibleState>(
     parts: &Vec<S::StatePart>,
     descriptor: &S::StateDescriptor,
 ) -> Result<()> {
-    write_state_parts(db, parts)?;
+    write_state_parts(db,parts)?;
     write_state_descriptor(db, descriptor)?;
 
     Ok(())

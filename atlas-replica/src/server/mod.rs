@@ -44,7 +44,7 @@ use crate::server::client_replier::Replier;
 pub mod client_replier;
 pub mod follower_handling;
 pub mod monolithic_server;
-mod divisible_state_server;
+pub mod divisible_state_server;
 // pub mod rq_finalizer;
 
 const REPLICA_MESSAGE_CHANNEL: usize = 1024;

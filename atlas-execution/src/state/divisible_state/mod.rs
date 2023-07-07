@@ -70,13 +70,13 @@ pub trait DivisibleState{
     type StatePart: StatePart<Self> + Send + Clone;
 
     /// Get the description of the state at this moment
-    fn get_descriptor(&self) -> &Self::StateDescriptor;
+    fn get_descriptor(&self) -> Self::StateDescriptor;
 
     /// Accept a number of parts into our current state
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> Result<()>;
 
     /// Prepare a checkpoint of the state
-    fn prepare_checkpoint(&mut self) -> Result<&Self::StateDescriptor>;
+    fn prepare_checkpoint(&mut self) -> Result<Self::StateDescriptor>;
 
     /// Get the parts corresponding to the provided part descriptions
     fn get_parts(&self, parts: &Vec<Self::PartDescription>) -> Result<Vec<Self::StatePart>>;
