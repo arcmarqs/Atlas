@@ -1,4 +1,4 @@
-use std::{path::Path, ops::Range};
+use std::{path::Path};
 use crate::error::*;
 use sled::{Config, Db, Tree, IVec, Batch};
 
@@ -89,7 +89,7 @@ impl SledKVDB {
     {
         let handle = self.get_handle(prefix)?;
 
-        if let Ok(v) = handle.insert(key, data) {
+        if let Ok(_) = handle.insert(key, data) {
             Ok(())
         } else {
             Err(Error::simple(ErrorKind::Persistentdb))
@@ -120,8 +120,10 @@ impl SledKVDB {
     where
         T: AsRef<[u8]>,
     {
+        let handle = self.get_handle(prefix)?;
 
-        self.db.drop_tree(prefix).map(|b| ()).wrapped(ErrorKind::PersistentdbRocksdb)
+
+        handle.remove(key).map(|_| ()).wrapped(ErrorKind::PersistentdbRocksdb)
     }
 
     /// Delete a set of keys
@@ -141,7 +143,7 @@ impl SledKVDB {
             batch.remove(key)
         }
 
-        self.db.apply_batch(batch).wrapped(ErrorKind::Persistentdb)
+        handle.apply_batch(batch).wrapped(ErrorKind::Persistentdb)
     }
 
     pub fn erase_range<T>(&self, prefix: &'static str, start: T, end: T) -> Result<()>
@@ -150,7 +152,7 @@ impl SledKVDB {
     {
         let handle = self.get_handle(prefix)?;
         let iter = handle.range(start..end);
-        iter.map(|res| handle.remove(res.expect("Kv pair not found").0));
+        let _ = iter.map(|res| handle.remove(res.expect("Kv pair not found").0));
         Ok(())
     }
 

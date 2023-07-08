@@ -956,14 +956,3 @@ impl<D: ApplicationData> Clone for PersistentLogMode<D> {
         }
     }
 }
-
-
-impl<S, D, OPM, SOPM, STM> DivisibleStateLog<S> for PersistentLog<D, OPM, SOPM, STM>
-    where S: DivisibleStateState,
-          D: ApplicationData + 'static,
-          OPM: OrderingProtocolMessage + 'static,
-          SOPM: StatefulOrderProtocolMessage + 'static,
-          STM: StateTransferMessage + 'static {
-
-          }
-
