@@ -304,6 +304,7 @@ impl<WP, D> TimeoutOrchestrator<WP, D> {
                         .expect("Failed to send worker message");
                 }
             }
+            ReceivedRequest::LT(_, _) => todo!(),
         }
     }
 

@@ -1,12 +1,11 @@
 use std::sync::{RwLock, Arc};
 
-use atlas_common::crypto::hash::Context;
-use atlas_common::error::Error;
+
 use atlas_common::{crypto::hash::Digest, ordering::Orderable};
 use atlas_common::ordering::{self, SeqNo};
 use atlas_execution::state::divisible_state::{StatePart, DivisibleState, PartId, DivisibleStateDescriptor};
 use serde::{Serialize, Deserialize};
-use sled::{Serialize as sled_serialize, NodeEvent, IVec};
+use sled::{Serialize as sled_serialize};
 use state_orchestrator::{StateOrchestrator, StateDescriptor};
 use state_tree::{StateTree, Node, LeafNode};
 
@@ -16,25 +15,29 @@ pub mod state_tree;
 #[derive(Clone,Serialize,Deserialize)]
 pub struct SerializedState {
     pid: u64,
-    bytes: Vec<u8>
+    bytes: Vec<u8>,
+    leaf: LeafNode
 }
 
 impl SerializedState{
-    pub fn from_node(pid: u64,node: sled::Node) -> Self {
+    pub fn from_node(pid: u64,node: sled::Node, leaf: LeafNode) -> Self {
         Self{
             pid,
             bytes: sled_serialize::serialize(&node),
+            leaf,
+
         }
     }
 
     pub fn to_node(&self) -> sled::Node {
         sled_serialize::deserialize(&mut self.bytes.as_slice()).unwrap()
     }
+
 }
 
 impl StatePart<StateOrchestrator> for SerializedState {
-    fn descriptor(&self, state: SerializedTree) -> LeafNode {
-        state.descriptor.get_leaf(self.pid)
+    fn descriptor(&self) -> &LeafNode {
+        &self.leaf
     }
 }
 
@@ -183,9 +186,9 @@ impl DivisibleState for StateOrchestrator {
         parts: &Vec<Self::PartDescription>,
     ) -> atlas_common::error::Result<Vec<Self::StatePart>> {
         let mut state_parts = Vec::new();
-        for part in parts {
-            if let Some(node) = self.get_page(part.pid) {
-                let serialized_part = SerializedState::from_node(part.pid, node);
+        for leaf in parts {
+            if let Some(node) = self.get_page(leaf.pid) {
+                let serialized_part = SerializedState::from_node(leaf.pid, node,leaf.clone());
 
                 state_parts.push(serialized_part);
             }
