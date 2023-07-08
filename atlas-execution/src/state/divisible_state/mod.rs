@@ -49,7 +49,7 @@ pub trait StatePart<S: DivisibleState + ?Sized> {
 ///
 /// The trait that represents a divisible state, to be used by the state transfer protocol
 ///
-pub trait DivisibleState{
+pub trait DivisibleState: Sized {
 
     #[cfg(feature = "serialize_serde")]
     type PartDescription: PartId + for<'a> Deserialize<'a> + Serialize + Send + Clone;

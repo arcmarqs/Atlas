@@ -39,7 +39,7 @@ pub struct DivStReplica<S, A, OP, ST, LT, NT, PL>
 }
 
 impl<S, A, OP, ST, LT, NT, PL> DivStReplica<S, A, OP, ST, LT, NT, PL> where
-    S: DivisibleState + 'static,
+    S: DivisibleState + Send + 'static,
     A: Application<S> + Send + 'static,
     OP: StatefulOrderProtocol<A::AppData, NT, PL> + PersistableOrderProtocol<OP::Serialization, OP::StateSerialization> + Send + 'static,
     LT: LogTransferProtocol<A::AppData, OP, NT, PL> + 'static,
@@ -69,7 +69,7 @@ impl<S, A, OP, ST, LT, NT, PL> DivStReplica<S, A, OP, ST, LT, NT, PL> where
                                                      inner_replica.node.clone(),
                                                      inner_replica.persistent_log.clone(), state_tx.clone())?;
 
-        let view= inner_replica.ordering_protocol.view();
+        let view = inner_replica.ordering_protocol.view();
 
         let mut replica = Self {
             p: Default::default(),

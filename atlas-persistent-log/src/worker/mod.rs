@@ -1,5 +1,5 @@
-mod monolithic_worker;
-mod divisible_state_worker;
+pub(super) mod monolithic_worker;
+pub(super) mod divisible_state_worker;
 
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -86,7 +86,7 @@ pub struct PersistentLogWorker<D, OPM, SOPM, POP, PSP>
 }
 
 
-impl<D: ApplicationData, OPM: OrderingProtocolMessage, SOPM: StatefulOrderProtocolMessage> PersistentLogWorkerHandle<OPM, SOPM> {
+impl<OPM: OrderingProtocolMessage, SOPM: StatefulOrderProtocolMessage> PersistentLogWorkerHandle<OPM, SOPM> {
     /// Employ a simple round robin load distribution
     fn next_worker(&self) -> &PersistentLogWriteStub<OPM, SOPM> {
         let counter = self.round_robin_counter.fetch_add(1, Ordering::Relaxed);
@@ -156,7 +156,7 @@ impl<D, OPM, SOPM, PS, PSP> PersistentLogWorker<D, OPM, SOPM, PS, PSP>
         Self { request_rx, response_txs, db, phantom: Default::default() }
     }
 
-    fn work_iteration(&mut self) -> Result<()>{
+    fn work_iteration(&mut self) -> Result<()> {
         let (request, callback) = match self.request_rx.recv() {
             Ok((request, callback)) => (request, callback),
             Err(err) => {
@@ -200,7 +200,7 @@ impl<D, OPM, SOPM, PS, PSP> PersistentLogWorker<D, OPM, SOPM, PS, PSP>
             if let Err(err) = self.work_iteration() {
                 error!("Failed to execute persistent log request because {:?}", err);
 
-                break
+                break;
             }
         }
     }
@@ -223,15 +223,6 @@ impl<D, OPM, SOPM, PS, PSP> PersistentLogWorker<D, OPM, SOPM, PS, PSP>
                 let seq = msg.message().sequence_number();
 
                 ResponseMessage::WroteMessage(seq, msg.header().digest().clone())
-            }
-            PWMessage::Checkpoint(checkpoint) => {
-                /*let seq = checkpoint.sequence_number();
-
-                write_checkpoint::<D, OPM, SOPM, PS>(&self.db, checkpoint)?;
-
-                ResponseMessage::Checkpointed(seq)
-                 */
-                ResponseMessage::Checkpointed(SeqNo::ZERO)
             }
             PWMessage::Invalidate(seq) => {
                 invalidate_seq::<OPM, SOPM, PS>(&self.db, seq)?;
@@ -390,32 +381,7 @@ pub(super) fn write_latest_seq_no(db: &KVDB, seq_no: SeqNo) -> Result<()> {
 
     db.set(COLUMN_FAMILY_OTHER, LATEST_SEQ, &f_seq_no[..])
 }
-/*
-pub(super) fn write_checkpoint<D: ApplicationData, OPM: OrderingProtocolMessage, SOPM: StatefulOrderProtocolMessage, PS: PersistableOrderProtocol<OPM, SOPM>>(db: &KVDB, checkpoint: Arc<ReadOnly<Checkpoint<D::State>>>) -> Result<()> {
-    let mut state = Vec::new();
 
-    D::serialize_state(&mut state, checkpoint.state())?;
-
-    db.set(COLUMN_FAMILY_OTHER, LATEST_STATE, state.as_slice())?;
-
-    let seq_no = serialize::make_seq(checkpoint.sequence_number())?;
-
-    //Only remove the previous operations after persisting the checkpoint,
-    //To assert no information can be lost
-    let start = db.get(COLUMN_FAMILY_OTHER, FIRST_SEQ)?.unwrap();
-
-    let start = serialize::read_seq(&start[..])?;
-
-    //Update the first seq number, officially making all of the previous messages useless
-    //And ready to be deleted
-    db.set(COLUMN_FAMILY_OTHER, FIRST_SEQ, seq_no.as_slice())?;
-
-    //TODO: This shouldn't be here. It should be handled by the ordering protocol
-    delete_proofs_between::<OPM, SOPM, PS>(db, start, checkpoint.sequence_number())?;
-
-    Ok(())
-}
-*/
 pub(super) fn write_dec_log<OPM: OrderingProtocolMessage, SOPM: StatefulOrderProtocolMessage, PS: PersistableOrderProtocol<OPM, SOPM>>(db: &KVDB, dec_log: &DecLog<SOPM>) -> Result<()> {
     write_latest_seq_no(db, dec_log.sequence_number())?;
 
@@ -510,7 +476,7 @@ fn delete_all_proof_metadata_for_seq(db: &KVDB, seq: SeqNo) -> Result<()> {
 }
 
 
-impl<D: ApplicationData, OPM: OrderingProtocolMessage, SOPM: StatefulOrderProtocolMessage> Deref for PersistentLogWriteStub<OPM, SOPM> {
+impl<OPM: OrderingProtocolMessage, SOPM: StatefulOrderProtocolMessage> Deref for PersistentLogWriteStub<OPM, SOPM> {
     type Target = ChannelSyncTx<ChannelMsg<OPM, SOPM>>;
 
     fn deref(&self) -> &Self::Target {
