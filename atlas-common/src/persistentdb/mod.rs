@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::sync::Arc;
 
 use ::sled::IVec;
 

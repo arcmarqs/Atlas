@@ -381,7 +381,7 @@ impl TimeoutWorker {
     /// Remove all CST timeout requests that match the given sequence number (or all timeouts if there is no sequence number)
     fn handle_clear_cst_rqs(&mut self, seq_no: Option<SeqNo>) {
         for timeout_rqs in self.pending_timeouts.values_mut() {
-            timeout_rqs.drain_filter(|rq| {
+            timeout_rqs.extract_if(|rq| {
                 match &rq.info {
                     TimeoutKind::ClientRequestTimeout(_) => {
                         false
@@ -407,7 +407,7 @@ impl TimeoutWorker {
 
         //Clear all of the pending timeouts
         for timeouts in self.pending_timeouts.values_mut() {
-            timeouts.drain_filter(|rq| {
+            timeouts.extract_if(|rq| {
                 match &rq.info {
                     TimeoutKind::ClientRequestTimeout(_) => {
                         true

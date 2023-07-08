@@ -15,7 +15,7 @@ use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_common::persistentdb::KVDB;
 use atlas_communication::message::StoredMessage;
 use atlas_core::ordering_protocol::{ProtocolConsensusDecision, ProtocolMessage, SerProof, SerProofMetadata, View};
-use atlas_core::persistent_log::{MonolithicStateLog, OrderingProtocolLog, PersistableOrderProtocol, PersistableStateTransferProtocol, StatefulOrderingProtocolLog, WriteMode};
+use atlas_core::persistent_log::{MonolithicStateLog, OrderingProtocolLog, PersistableOrderProtocol, PersistableStateTransferProtocol, StatefulOrderingProtocolLog, WriteMode, DivisibleStateLog};
 use atlas_core::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessage, StateTransferMessage};
 use atlas_core::state_transfer::{Checkpoint};
 use atlas_core::state_transfer::log_transfer::DecLog;
@@ -526,4 +526,13 @@ impl<D: ApplicationData> Clone for PersistentLogMode<D> {
     }
 }
 
+
+impl<S, D, OPM, SOPM, STM> DivisibleStateLog<S> for PersistentLog<D, OPM, SOPM, STM>
+    where S: DivisibleStateState,
+          D: ApplicationData + 'static,
+          OPM: OrderingProtocolMessage + 'static,
+          SOPM: StatefulOrderProtocolMessage + 'static,
+          STM: StateTransferMessage + 'static {
+
+          }
 
