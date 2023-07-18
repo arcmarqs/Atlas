@@ -122,6 +122,10 @@ impl StateTree {
 
         bagged_peaks.pop()
     }
+
+    pub fn get_seqno(&self) -> SeqNo {
+        self.seqno
+    }
 }
 
 pub type NodeRef = Arc<RwLock<Node>>;

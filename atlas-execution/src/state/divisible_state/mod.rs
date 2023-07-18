@@ -13,8 +13,9 @@ pub enum InstallStateMessage<S> where S: DivisibleState {
 
 /// The message that is sent when a checkpoint is done by the execution module
 /// and a state must be returned for the state transfer protocol
+#[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
+#[derive(Clone,Debug)]
 pub struct AppStateMessage<S> where S: DivisibleState {
-
     seq_no: SeqNo,
     state_descriptor: S::StateDescriptor,
     altered_parts: Vec<S::StatePart>,
@@ -36,6 +37,8 @@ pub trait DivisibleStateDescriptor<S: DivisibleState + ?Sized>: Orderable + Part
 
     /// Compare two states
     fn compare_descriptors(&self, other: &Self) -> Vec<S::PartDescription>;
+
+    fn get_digest(&self) -> &Digest;
 
 }
 
@@ -80,6 +83,8 @@ pub trait DivisibleState: Sized {
 
     /// Get the parts corresponding to the provided part descriptions
     fn get_parts(&self, parts: &Vec<Self::PartDescription>) -> Result<Vec<Self::StatePart>>;
+
+    fn get_seqno(&self) -> Result<SeqNo>;
 
 }
 

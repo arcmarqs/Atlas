@@ -1,6 +1,6 @@
 use std::{sync::{Arc, RwLock, Mutex, atomic::{Ordering, AtomicU32}}, collections::BTreeMap};
 
-use atlas_common::crypto::hash::{Context, Digest};
+use atlas_common::{crypto::hash::{Context, Digest}, ordering::SeqNo};
 use sled::{NodeEvent, Db, Mode, Config, Subscriber, EventType};
 use crate::{state_tree::{StateTree, LeafNode, Node}, SerializedTree};
 
@@ -60,8 +60,13 @@ impl StateDescriptor {
     pub fn get_leaf(&self, pid: u64) -> LeafNode {
         self.tree.lock().unwrap().get_leaf(pid)
     }
+
+    pub fn get_seqno(&self) -> SeqNo{
+        self.tree.lock().unwrap().get_seqno()
+    }
 }
 
+#[derive(Debug,Clone)]
 pub struct StateOrchestrator {
     pub db: Db,
     pub descriptor: Arc<StateDescriptor>,
@@ -161,11 +166,11 @@ impl StateOrchestrator {
     }
 
     pub fn get_descriptor(&self) -> Result<SerializedTree, ()> {
-        self.descriptor.tree.lock().unwrap().full_serialized_tree(self.descriptor.clone())
+        self.descriptor.tree.lock().unwrap().full_serialized_tree()
     }
 
     pub fn get_partial_descriptor(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()> {
-        self.descriptor.tree.lock().unwrap().to_serialized_tree(self.descriptor.clone(), node)
+        self.descriptor.tree.lock().unwrap().to_serialized_tree(node)
     }
 }
 

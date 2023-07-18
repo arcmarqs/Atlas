@@ -45,20 +45,15 @@ impl StatePart<StateOrchestrator> for SerializedState {
 pub struct SerializedTree {
     root_digest: Digest,
     seqno: SeqNo,
-
-    // used to get access to the actual merkle tree
-    #[serde(skip_serializing, skip_deserializing)]
-    descriptor: Arc<StateDescriptor>,
     // the leaves that make this merke tree, they must be in order.
     leaves: Vec<LeafNode>,
 }
 
 impl SerializedTree {
-    pub fn new(digest: Digest, seqno: SeqNo, descriptor: Arc<StateDescriptor>, leaves: Vec<LeafNode>) -> Self {
+    pub fn new(digest: Digest, seqno: SeqNo, leaves: Vec<LeafNode>) -> Self {
         Self {
             root_digest: digest,
             seqno,
-            descriptor,
             leaves,
         }
     }
@@ -81,7 +76,7 @@ impl Orderable for SerializedTree {
 }
 
 impl StateTree {
-    pub fn to_serialized_tree(&self, descriptor: Arc<StateDescriptor>, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()>{
+    pub fn to_serialized_tree(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()>{
         let node_read = node.read().unwrap();
         let digest = node_read.get_hash();
         let pids = node_read.get_pids_concat();
@@ -94,14 +89,14 @@ impl StateTree {
             }
             vec
         };
-        Ok(SerializedTree::new(digest,self.seqno,descriptor,leaf_list))
+        Ok(SerializedTree::new(digest,self.seqno,leaf_list))
 
     }
 
-    pub fn full_serialized_tree(&self, descriptor: Arc<StateDescriptor>) -> Result<SerializedTree, ()> {
+    pub fn full_serialized_tree(&self) -> Result<SerializedTree, ()> {
         let root = self.bag_peaks();
         if let Some(root) = root {
-            self.to_serialized_tree(descriptor, root)
+            self.to_serialized_tree(root)
         } else {
             Err(())
         }
@@ -111,6 +106,10 @@ impl StateTree {
 impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
     fn parts(&self) -> &Vec<LeafNode> {
        &self.leaves
+    }
+
+    fn get_digest(&self) -> &Digest {
+        &self.root_digest
     }
 
     // compare state descriptors and return different parts
@@ -195,5 +194,9 @@ impl DivisibleState for StateOrchestrator {
         }
 
         Ok(state_parts)
+    }
+
+    fn get_seqno(&self) -> atlas_common::error::Result<SeqNo> {
+        Ok(self.descriptor.get_seqno())
     }
 }
