@@ -3,8 +3,8 @@ use std::sync::Arc;
 use atlas_common::channel;
 use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx};
 use atlas_common::node_id::NodeId;
+use atlas_communication::{Node};
 use atlas_communication::message::{NetworkMessageKind, System};
-use atlas_communication::protocol_node::ProtocolNetworkNode;
 use atlas_execution::app::{BatchReplies, Reply};
 use atlas_core::messages::{ReplyMessage, SystemMessage};
 use atlas_core::serialize::{LogTransferMessage, OrderingProtocolMessage, ServiceMsg, StateTransferMessage};
@@ -70,7 +70,7 @@ impl<D, NT: 'static> Replier<D, NT> where D: ApplicationData + 'static {
     pub fn start<OP, ST, LP>(mut self) where OP: OrderingProtocolMessage + 'static,
                                              ST: StateTransferMessage + 'static,
                                              LP: LogTransferMessage + 'static,
-                                             NT: ProtocolNetworkNode<ServiceMsg<D, OP, ST, LP>> {
+                                             NT: Node<ServiceMsg<D, OP, ST, LP>> {
         std::thread::Builder::new().name(format!("{:?} // Reply thread", self.node_id))
             .spawn(move || {
                 loop {
@@ -99,11 +99,12 @@ impl<D, NT: 'static> Replier<D, NT> where D: ApplicationData + 'static {
                         // store previous reply message and peer id,
                         // for the next iteration
                         //TODO: Choose ordered or unordered reply
-                        let message = SystemMessage::OrderedReply(ReplyMessage::new(
-                            session_id,
-                            operation_id,
-                            payload,
-                        ));
+                        let message = NetworkMessageKind::from(
+                            SystemMessage::OrderedReply(ReplyMessage::new(
+                                session_id,
+                                operation_id,
+                                payload,
+                            )));
 
                         curr_send = Some((message, peer_id));
                     }

@@ -4,7 +4,6 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use atlas_common::peer_addr::PeerAddr;
 use bytes::{Bytes, BytesMut};
 use log::{debug, error, info, trace, warn};
 use mio::{Events, Interest, Poll, Registry, Token};
@@ -22,9 +21,9 @@ use crate::message::{Header, WireMessage};
 use crate::mio_tcp::connections::Connections;
 use crate::mio_tcp::connections::epoll_group::epoll_workers::{interrupted, would_block};
 use crate::mio_tcp::connections::epoll_group::EpollWorkerGroupHandle;
-use crate::reconfiguration_node::NetworkInformationProvider;
 use crate::serialize::Serializable;
 use crate::tcpip::connections::ConnCounts;
+use crate::tcpip::PeerAddr;
 
 const DEFAULT_ALLOWED_CONCURRENT_JOINS: usize = 128;
 // Since the tokens will always start at 0, we limit the amount of concurrent joins we can have
@@ -40,17 +39,14 @@ pub struct ConnectionHandler {
     currently_connecting: Mutex<BTreeMap<NodeId, usize>>,
 }
 
-pub struct ServerWorker<NI, RM, PM>
-    where NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          PM: Serializable + 'static {
+pub struct ServerWorker<M: Serializable + 'static> {
     my_id: NodeId,
     first_cli: NodeId,
     listener: MioListener,
     currently_accepting: Slab<(MioSocket, usize, BytesMut)>,
     conn_handler: Arc<ConnectionHandler>,
-    peer_conns: Arc<Connections<NI, RM, PM>>,
-    poll: Poll,
+    peer_conns: Arc<Connections<M>>,
+    poll: Poll
 }
 
 #[derive(Debug, Clone)]
@@ -60,12 +56,9 @@ enum ConnectionResult {
     ConnectionBroken,
 }
 
-impl<NI, RM, PM> ServerWorker<NI, RM, PM>
-    where NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          PM: Serializable + 'static {
+impl<M> ServerWorker<M> where M: Serializable + 'static {
     pub fn new(my_id: NodeId, first_cli: NodeId, listener: MioListener,
-               conn_handler: Arc<ConnectionHandler>, peer_conns: Arc<Connections<NI, RM, PM>>) -> Result<Self> {
+               conn_handler: Arc<ConnectionHandler>, peer_conns: Arc<Connections<M>>) -> Result<Self> {
         let mut poll = Poll::new()?;
 
         Ok(Self {
@@ -75,7 +68,7 @@ impl<NI, RM, PM> ServerWorker<NI, RM, PM>
             currently_accepting: Slab::with_capacity(DEFAULT_ALLOWED_CONCURRENT_JOINS),
             conn_handler,
             peer_conns,
-            poll,
+            poll
         })
     }
 
@@ -161,7 +154,7 @@ impl<NI, RM, PM> ServerWorker<NI, RM, PM>
             }
             ConnectionResult::ConnectionBroken => {
                 // Discard of the connection since it has been broken
-                if let Some((mut conn, _, _)) = self.currently_accepting.try_remove(token.into()) {
+                if let Some((mut conn,_, _)) = self.currently_accepting.try_remove(token.into()) {
                     self.poll.registry().deregister(&mut conn)?;
                 }
             }
@@ -272,12 +265,9 @@ impl ConnectionHandler {
         }
     }
 
-    pub fn connect_to_node<NI, RM, PM>(self: &Arc<Self>, connections: Arc<Connections<NI, RM, PM>>,
-                                       peer_id: NodeId, addr: PeerAddr) -> OneShotRx<Result<()>>
-        where
-            NI: NetworkInformationProvider + 'static,
-            RM: Serializable + 'static,
-            PM: Serializable + 'static {
+    pub fn connect_to_node<M: Serializable + 'static>(self: &Arc<Self>,
+                                                      connections: Arc<Connections<M>>,
+                                                      peer_id: NodeId, addr: PeerAddr) -> OneShotRx<Result<()>> {
         let (tx, rx) = channel::new_oneshot_channel();
 
         debug!(" {:?} // Connecting to node {:?} at {:?}", self.my_id(), peer_id, addr);
@@ -435,17 +425,8 @@ impl ConnectionHandler {
     }
 }
 
-pub fn initialize_server<NI, RM, PM>(my_id: NodeId, first_cli: NodeId, listener: SyncListener,
-                                     connection_handler: Arc<ConnectionHandler>,
-                                     conns: Arc<Connections<NI, RM, PM>>)
-    where NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          PM: Serializable + 'static {
-    let server_worker = ServerWorker::new(my_id.clone(),
-                                          first_cli.clone(),
-                                          listener.into(),
-                                          connection_handler.clone(),
-                                          conns).unwrap();
+pub fn initialize_server<M: Serializable + 'static>(my_id: NodeId, first_cli: NodeId, listener: SyncListener, connection_handler: Arc<ConnectionHandler>, conns: Arc<Connections<M>>) {
+    let server_worker = ServerWorker::new(my_id.clone(), first_cli.clone(), listener.into(), connection_handler.clone(), conns).unwrap();
 
     std::thread::Builder::new()
         .name(format!("Server Worker {:?}", my_id))

@@ -1,27 +1,23 @@
 use std::sync::Arc;
-use atlas_common::socket::{SecureWriteHalf};
-use crate::reconfiguration_node::NetworkInformationProvider;
+use atlas_common::channel::ChannelMixedRx;
+use atlas_common::socket::{SecureWriteHalf, SecureWriteHalfSync};
 use crate::serialize::Serializable;
 
-use crate::tcpip::connections::{ConnHandle, PeerConnection, PeerConnections};
+use crate::tcpip::connections::{ConnHandle, PeerConnection, NetworkSerializedMessage};
 
 pub mod asynchronous;
 pub mod synchronous;
 
-pub(super) fn spawn_outgoing_task_handler<NI, RM, PM>(
+pub(super) fn spawn_outgoing_task_handler<M: Serializable>(
     conn_handle: ConnHandle,
-    node_conns: Arc<PeerConnections<NI, RM, PM>>,
-    connection: Arc<PeerConnection<RM, PM>>,
-    socket: SecureWriteHalf)
-    where NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          PM: Serializable + 'static {
+    connection: Arc<PeerConnection<M>>,
+    socket: SecureWriteHalf) {
     match socket {
         SecureWriteHalf::Async(asynchronous) => {
-            asynchronous::spawn_outgoing_task(conn_handle, node_conns, connection, asynchronous);
+            asynchronous::spawn_outgoing_task(conn_handle, connection, asynchronous);
         }
         SecureWriteHalf::Sync(synchronous) => {
-            synchronous::spawn_outgoing_thread(conn_handle, node_conns, connection, synchronous);
+            synchronous::spawn_outgoing_thread(conn_handle, connection, synchronous);
         }
     }
 }

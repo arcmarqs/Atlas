@@ -22,9 +22,8 @@ use atlas_common::ordering::{Orderable, SeqNo};
 use crate::serialize::{Buf, Serializable};
 
 // convenience type
-pub type StoredSerializedNetworkMessage<RM, PM> = StoredMessage<SerializedMessage<NetworkMessageKind<RM, PM>>>;
+pub type StoredSerializedNetworkMessage<M> = StoredMessage<SerializedMessage<NetworkMessageKind<M>>>;
 
-pub type StoredSerializedProtocolMessage<M> = StoredMessage<SerializedMessage<M>>;
 
 pub struct SerializedMessage<M> {
     original: M,
@@ -101,109 +100,98 @@ impl<M> Debug for StoredMessage<M> where M: Debug {
 ///
 /// The messages that are going to be sent over the network
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
-pub struct NetworkMessage<RM, PM> where RM: Serializable, PM: Serializable {
+pub struct NetworkMessage<M> where M: Serializable {
     pub header: Header,
-    pub message: NetworkMessageKind<RM, PM>,
+    pub message: NetworkMessageKind<M>,
 }
 
-impl<RM, PM> NetworkMessage<RM, PM> where RM: Serializable, PM: Serializable {
-    pub fn new(header: Header, message: NetworkMessageKind<RM, PM>) -> Self {
+impl<M> NetworkMessage<M> where M: Serializable {
+    pub fn new(header: Header, message: NetworkMessageKind<M>) -> Self {
         Self { header, message }
     }
 
-    pub fn into_inner(self) -> (Header, NetworkMessageKind<RM, PM>) {
+    pub fn into_inner(self) -> (Header, NetworkMessageKind<M>) {
         (self.header, self.message)
     }
 }
 
-impl<RM, PM> From<(Header, NetworkMessageKind<RM, PM>)> for NetworkMessage<RM, PM>
-    where RM: Serializable,
-          PM: Serializable {
-    fn from(value: (Header, NetworkMessageKind<RM, PM>)) -> Self {
+impl<M> From<(Header, NetworkMessageKind<M>)> for NetworkMessage<M> where M: Serializable {
+    fn from(value: (Header, NetworkMessageKind<M>)) -> Self {
         NetworkMessage { header: value.0, message: value.1 }
     }
 }
 
 /// The type of network message you want to send
-/// To initialize a System message, you should use the [`From<PM::Message>`] implementation
+/// To initialize a System message, you should use the [`From<M::Message>`] implementation
 /// that is available.
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
-pub enum NetworkMessageKind<RM, PM> where PM: Serializable, RM: Serializable {
-    ReconfigurationMessage(Reconfig<RM::Message>),
+pub enum NetworkMessageKind<M> where M: Serializable {
     Ping(PingMessage),
-    System(System<PM::Message>),
+    System(System<M::Message>),
 }
 
-impl<RM, PM> Clone for NetworkMessageKind<RM, PM> where RM: Serializable, PM: Serializable {
+impl<M> Clone for NetworkMessageKind<M> where M: Serializable {
     fn clone(&self) -> Self {
         match self {
             NetworkMessageKind::Ping(ping) => { NetworkMessageKind::Ping(ping.clone()) }
             NetworkMessageKind::System(sys) => { NetworkMessageKind::System(sys.clone()) }
-            NetworkMessageKind::ReconfigurationMessage(reconfig) => { NetworkMessageKind::ReconfigurationMessage(reconfig.clone()) }
         }
     }
 }
 
-impl<RM, PM> NetworkMessageKind<RM, PM> where RM: Serializable, PM: Serializable {
-    pub fn from_system(msg: PM::Message) -> Self {
+impl<M> NetworkMessageKind<M> where M: Serializable {
+    pub fn from(msg: M::Message) -> Self {
         NetworkMessageKind::System(System::from(msg))
     }
 
-    pub fn from_reconfig(msg: RM::Message) -> Self {
-        NetworkMessageKind::ReconfigurationMessage(Reconfig::from(msg))
-    }
-
-    pub fn deref_system(&self) -> &PM::Message {
+    pub fn deref_system(&self) -> &M::Message {
         match self {
+            NetworkMessageKind::Ping(_) => {
+                unreachable!()
+            }
             NetworkMessageKind::System(sys) => {
                 sys
             }
-            _ => {
+        }
+    }
+
+    pub fn into(self) -> M::Message {
+        match self {
+            NetworkMessageKind::Ping(_) => {
                 unreachable!()
+            }
+            NetworkMessageKind::System(sys_msg) => {
+                sys_msg.inner
             }
         }
     }
 
-    pub fn into(self) -> PM::Message {
+    pub fn into_system(self) -> M::Message {
         match self {
-            NetworkMessageKind::System(sys_msg) => {
-                sys_msg.inner
-            }
-            _ => {
+            NetworkMessageKind::Ping(_) => {
                 unreachable!()
             }
-        }
-    }
-
-    pub fn into_system(self) -> PM::Message {
-        match self {
             NetworkMessageKind::System(sys_msg) => {
                 sys_msg.inner
-            }
-            _ => {
-                unreachable!()
             }
         }
     }
 }
 
-impl<RM, PM> From<System<PM::Message>> for NetworkMessageKind<RM, PM> where RM: Serializable, PM: Serializable {
-    fn from(value: System<PM::Message>) -> Self {
+impl<M> From<System<M::Message>> for NetworkMessageKind<M> where M: Serializable {
+    fn from(value: System<M::Message>) -> Self {
         NetworkMessageKind::System(value)
     }
 }
 
-impl<RM, PM> Debug for NetworkMessageKind<RM, PM> where RM: Serializable, PM: Serializable {
+impl<M> Debug for NetworkMessageKind<M> where M: Serializable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             NetworkMessageKind::Ping(ping) => {
                 write!(f, "Ping message Request ({})", ping.is_request())
             }
-            NetworkMessageKind::System(_) => {
+            NetworkMessageKind::System(sys) => {
                 write!(f, "System message")
-            }
-            NetworkMessageKind::ReconfigurationMessage(_) => {
-                write!(f, "Reconfiguration message")
             }
         }
     }
@@ -214,12 +202,6 @@ impl<RM, PM> Debug for NetworkMessageKind<RM, PM> where RM: Serializable, PM: Se
 #[derive(Clone)]
 pub struct System<M: Clone> {
     inner: M,
-}
-
-impl<M> System<M> where M: Clone {
-    pub fn into(self) -> M {
-        self.inner
-    }
 }
 
 impl<M: Clone> Deref for System<M> {
@@ -233,34 +215,6 @@ impl<M: Clone> Deref for System<M> {
 impl<M: Clone> From<M> for System<M> {
     fn from(value: M) -> Self {
         System { inner: value }
-    }
-}
-
-
-/// A system message, relating to the protocol that is utilizing this communication framework
-#[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
-#[derive(Clone)]
-pub struct Reconfig<M: Clone> {
-    inner: M,
-}
-
-impl<M> Reconfig<M> where M: Clone {
-    pub fn into(self) -> M {
-        self.inner
-    }
-}
-
-impl<M: Clone> Deref for Reconfig<M> {
-    type Target = M;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<M: Clone> From<M> for Reconfig<M> {
-    fn from(value: M) -> Self {
-        Self { inner: value }
     }
 }
 
@@ -661,6 +615,7 @@ impl WireMessage {
 
 impl Debug for Header {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+
         let version = self.version;
         let length = self.length;
         let signature = self.signature;
@@ -670,7 +625,7 @@ impl Debug for Header {
         let to = self.to;
 
         write!(f, "Header {{ version: {}, length: {}, signature: {:x?}, digest: {:x?}, nonce: {}, from: {}, to: {} }}",
-               version, length, signature, digest, nonce, from, to
+            version, length, signature, digest, nonce, from, to
         )
     }
 }
@@ -679,7 +634,8 @@ impl Debug for Header {
 mod tests {
     use atlas_common::crypto::hash::Digest;
     use atlas_common::crypto::signature::Signature;
-    use crate::message::{WireMessage, Header};
+    use crate::bft::communication::message::{WireMessage, Header};
+    use crate::message::{Header, WireMessage};
 
     #[test]
     fn test_header_serialize() {

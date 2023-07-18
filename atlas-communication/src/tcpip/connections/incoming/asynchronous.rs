@@ -1,29 +1,23 @@
 use std::sync::Arc;
 
 use bytes::BytesMut;
-
+use either::Either;
 use futures::AsyncReadExt;
-
-use log::error;
+use log::{debug, error, info, trace};
 
 use atlas_common::async_runtime as rt;
 use atlas_common::socket::SecureReadHalfAsync;
 
+use crate::client_pooling::ConnectedPeer;
 use crate::cpu_workers;
-use crate::message::{Header, NetworkMessageKind, StoredMessage};
-use crate::reconfiguration_node::{NetworkInformationProvider, ReconfigurationMessageHandler};
+use crate::message::{Header, NetworkMessage};
 use crate::serialize::Serializable;
-use crate::tcpip::connections::{ConnHandle, PeerConnection, PeerConnections};
+use crate::tcpip::connections::{ConnHandle, PeerConnection};
 
-pub(super) fn spawn_incoming_task<NI, RM, PM>(
+pub(super) fn spawn_incoming_task<M: Serializable + 'static>(
     conn_handle: ConnHandle,
-    node_connections: Arc<PeerConnections<NI, RM, PM>>,
-    peer: Arc<PeerConnection<RM, PM>>,
-    mut socket: SecureReadHalfAsync)
-    where
-        NI: NetworkInformationProvider + 'static,
-        RM: Serializable + 'static,
-        PM: Serializable + 'static {
+    peer: Arc<PeerConnection<M>>,
+    mut socket: SecureReadHalfAsync) {
     rt::spawn(async move {
         let client_pool_buffer = Arc::clone(peer.client_pool_peer());
         let mut read_buffer = BytesMut::with_capacity(Header::LENGTH);
@@ -61,7 +55,7 @@ pub(super) fn spawn_incoming_task<NI, RM, PM>(
             }
 
             // Use the threadpool for CPU intensive work in order to not block the IO threads
-            let result = cpu_workers::deserialize_message::<RM, PM>(header.clone(),
+            let result = cpu_workers::deserialize_message(header.clone(),
                                                           read_buffer).await.unwrap();
 
             let message = match result {
@@ -78,30 +72,21 @@ pub(super) fn spawn_incoming_task<NI, RM, PM>(
                 }
             };
 
-            match message {
-                NetworkMessageKind::System(sys_msg) => {
-                    if let Err(inner) = client_pool_buffer.push_request(StoredMessage::new(header, sys_msg.into())) {
-                        error!("{:?} // Channel closed, closing tcp connection as well to peer {:?}. {:?}",
-                                    conn_handle.my_id,
-                                    peer_id,
-                                    inner,);
+            let msg = NetworkMessage::new(header, message);
 
-                        break;
-                    };
-                }
-                NetworkMessageKind::ReconfigurationMessage(reconfig) => {
-                    if let Err(err) = peer.reconf_handling.push_request(StoredMessage::new(header, reconfig.into())) {
-                        error!("{:?} // Failed to push reconfiguration message to reconfiguration handler. {:?}", conn_handle.my_id, err);
-                    }
-                }
-                _ => unreachable!()
-            }
+            if let Err(inner) = client_pool_buffer.push_request(msg) {
+                error!("{:?} // Channel closed, closing tcp connection as well to peer {:?}. {:?}",
+                    conn_handle.my_id,
+                    peer_id,
+                    inner,
+                );
+
+                break;
+            };
 
             //TODO: Statistics
         }
 
-        let remaining_conns = peer.delete_connection(conn_handle.id());
-
-        node_connections.handle_conn_lost(&peer.peer_node_id, remaining_conns);
+        peer.delete_connection(conn_handle.id());
     });
 }

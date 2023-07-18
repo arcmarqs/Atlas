@@ -102,7 +102,7 @@ impl TimeoutWorker {
             if let Some(work_message) = message {
                 self.process_work_message(work_message);
             }
-
+            
             self.check_current_timeouts();
         }
     }
@@ -124,7 +124,6 @@ impl TimeoutWorker {
             TimeoutWorkerMessage::ClearCstTimeouts(seq) => {
                 self.handle_clear_cst_rqs(seq);
             }
-            TimeoutWorkerMessage::ClearReconfigTimeouts(_) => {}
         }
     }
 
@@ -193,7 +192,8 @@ impl TimeoutWorker {
                     return info.timeout_phase;
                 }
             }
-            _ => {}
+            TimeoutKind::Cst(rq) => {}
+            TimeoutKind::LogTransfer(rq) => {}
         }
 
         TimeoutPhase::TimedOut(0, Instant::now())
@@ -206,7 +206,7 @@ impl TimeoutWorker {
             notifications_needed,
             mut timeout_info
         } = message;
-
+        
         let current_timestamp = Utc::now().timestamp_millis() as u64;
 
         let final_timestamp = current_timestamp + timeout.as_millis() as u64;
@@ -267,7 +267,10 @@ impl TimeoutWorker {
                     }
                 }
             }
-            _ => {
+            TimeoutKind::Cst(rq) => {
+                (true, None)
+            }
+            TimeoutKind::LogTransfer(rq) => {
                 (true, None)
             }
         };
@@ -280,11 +283,13 @@ impl TimeoutWorker {
     }
 
     fn handle_messages_received(&mut self, message: ReceivedRequest) {
+
         let mut cleared_requests = 0;
 
         match message {
             ReceivedRequest::PrePrepareRequestReceived(sender, pre_prepare) => {
                 for client_request in pre_prepare {
+
                     let operation_key = operation_key_raw(client_request.sender, client_request.session);
 
                     let should_remove_timeout = if let Some(info) = self.client_watched_requests.get_mut(operation_key) {
@@ -294,7 +299,7 @@ impl TimeoutWorker {
                         } else if info.seq_no == client_request.seq_no {
                             // We want to remove the timeout associated with this request
 
-                            cleared_requests += 1;
+                            cleared_requests+=1;
 
                             Some(info.clone())
                         } else {
@@ -328,6 +333,7 @@ impl TimeoutWorker {
                         false
                     });
                 }
+
             }
             ReceivedRequest::LT(sender, message) => {
                 for timeout_requests in self.pending_timeouts.values_mut() {
@@ -341,25 +347,14 @@ impl TimeoutWorker {
                         false
                     });
                 }
-            }
-            ReceivedRequest::Reconfiguration(sender, message) => {
-                for timeout_requests in self.pending_timeouts.values_mut() {
-                    timeout_requests.extract_if(|timeout_rq| {
-                        if let TimeoutKind::Reconfiguration(cst_rq) = &timeout_rq.info {
-                            if *cst_rq == message {
-                                return timeout_rq.register_received_from(sender.clone());
-                            }
-                        }
 
-                        false
-                    });
-                }
             }
         }
     }
 
     /// Remove a given timeout from the pending timeouts
     fn remove_timeout_from_pending(&mut self, client_rq: &ClientRqTimeoutInfo) {
+
         let timeouts = self.pending_timeouts.get_mut(&client_rq.timeout_time);
 
         if let Some(timeouts) = timeouts {
@@ -402,6 +397,9 @@ impl TimeoutWorker {
         for timeout_rqs in self.pending_timeouts.values_mut() {
             timeout_rqs.extract_if(|rq| {
                 match &rq.info {
+                    TimeoutKind::ClientRequestTimeout(_) => {
+                        false
+                    }
                     TimeoutKind::Cst(rq_seq_no) => {
                         return if let Some(seq_no) = &seq_no {
                             return *seq_no != *rq_seq_no;
@@ -410,25 +408,7 @@ impl TimeoutWorker {
                             true
                         };
                     }
-                    _ => { false }
-                }
-            });
-        }
-    }
-
-    fn handle_clear_reconfig_rqs(&mut self, seq_no: Option<SeqNo>) {
-        for timeout_rqs in self.pending_timeouts.values_mut() {
-            timeout_rqs.extract_if(|rq| {
-                match &rq.info {
-                    TimeoutKind::Reconfiguration(rq_seq_no) => {
-                        return if let Some(seq_no) = &seq_no {
-                            return *seq_no != *rq_seq_no;
-                        } else {
-                            // We want to delete all of the cst timeouts
-                            true
-                        };
-                    }
-                    _ => { false }
+                    _ => {false}
                 }
             });
         }
@@ -436,6 +416,7 @@ impl TimeoutWorker {
 
     ///
     fn handle_reset_client_timeouts(&mut self, timeout_dur: Duration) {
+
         let mut timeouts_cleared = Vec::with_capacity(self.pending_timeouts.len());
 
         //Clear all of the pending timeouts
@@ -459,10 +440,13 @@ impl TimeoutWorker {
 
         for timeout in timeouts_cleared {
             if let TimeoutKind::ClientRequestTimeout(rq_info) = timeout {
+
                 let operation_key = operation_key_raw(rq_info.sender, rq_info.session);
 
                 if let Some(info) = self.client_watched_requests.get_mut(operation_key) {
+
                     if info.seq_no <= rq_info.seq_no {
+
                         info.update_with_timeout(rq_info.clone(), timeout_phase.clone(), timestamp);
 
                         let to_timeout = TimeoutRequest {
@@ -481,6 +465,7 @@ impl TimeoutWorker {
 
         self.pending_timeouts.insert(timestamp, timeouts);
     }
+
 }
 
 impl TimeoutRequest {
@@ -496,6 +481,7 @@ impl TimeoutRequest {
 }
 
 impl ClientRqTimeoutInfo {
+
     fn from_timeout_and_rq(rq: ClientRqInfo, timeout_phase: TimeoutPhase, timestamp: u64) -> Self {
         Self {
             seq_no: rq.seq_no,

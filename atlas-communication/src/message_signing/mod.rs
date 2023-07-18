@@ -6,33 +6,45 @@ use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
 use crate::config::PKConfig;
 use crate::message::{WireMessage};
+use crate::NodePK;
 
-#[deprecated(since="0.1.0", note="please use `ReconfigurableNetworkNode` instead")]
 pub struct NodePKShared {
-    my_key: Arc<KeyPair>,
+    my_key: KeyPair,
     peer_keys: IntMap<PublicKey>,
 }
 
+pub struct SignDetached {
+    shared: Arc<NodePKShared>,
+}
+
+impl SignDetached {
+
+    pub fn from(shared: &Arc<NodePKShared>) -> Self {
+        Self {
+            shared: Arc::clone(shared),
+        }
+    }
+
+    pub fn key_pair(&self) -> &KeyPair {
+        &self.shared.my_key
+    }
+}
 
 impl NodePKShared {
+
     pub fn from_config(config: PKConfig) -> Arc<Self> {
         Arc::new(Self {
-            my_key: Arc::new(config.sk),
-            peer_keys: config.pk,
+            my_key: config.sk,
+            peer_keys: config.pk
         })
     }
 
-    pub fn new(my_key: KeyPair, peer_keys: IntMap<PublicKey>) -> Self {
-        Self {
-            my_key: Arc::new(my_key),
-            peer_keys,
-        }
-    }
+    
 }
 
 #[derive(Clone)]
 pub struct NodePKCrypto {
-    pk_shared: Arc<NodePKShared>,
+    pk_shared: Arc<NodePKShared>
 }
 
 impl NodePKCrypto {
@@ -40,7 +52,21 @@ impl NodePKCrypto {
         Self { pk_shared }
     }
 
-    pub fn my_key(&self) -> &Arc<KeyPair> {
+    pub fn my_key(&self) -> &KeyPair {
+        &self.pk_shared.my_key
+    }
+}
+
+impl NodePK for NodePKCrypto {
+    fn sign_detached(&self) -> SignDetached {
+        SignDetached::from(&self.pk_shared)
+    }
+
+    fn get_public_key(&self, node: &NodeId) -> Option<PublicKey> {
+        self.pk_shared.peer_keys.get(node.0 as u64).cloned()
+    }
+
+    fn get_key_pair(&self) -> &KeyPair {
         &self.pk_shared.my_key
     }
 }

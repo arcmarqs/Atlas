@@ -4,19 +4,14 @@ use atlas_common::error::*;
 use atlas_common::channel;
 use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx};
 use atlas_common::ordering::Orderable;
-use atlas_communication::FullNetworkNode;
-use atlas_communication::protocol_node::ProtocolNetworkNode;
-use atlas_core::ordering_protocol::stateful_order_protocol::StatefulOrderProtocol;
+use atlas_communication::Node;
 use atlas_core::persistent_log::{DivisibleStateLog, PersistableOrderProtocol, PersistableStateTransferProtocol};
-use atlas_core::reconfiguration_protocol::ReconfigurationProtocol;
 use atlas_core::serialize::ServiceMsg;
 use atlas_core::state_transfer::divisible_state::DivisibleStateTransfer;
-use atlas_core::state_transfer::log_transfer::{LogTransferProtocol};
+use atlas_core::state_transfer::log_transfer::{LogTransferProtocol, StatefulOrderProtocol};
 use atlas_execution::app::Application;
 use atlas_execution::state::divisible_state::{AppStateMessage, DivisibleState, InstallStateMessage};
 use atlas_metrics::metrics::metric_duration;
-use atlas_reconfiguration::message::ReconfData;
-use atlas_reconfiguration::network_reconfig::NetworkInfo;
 use crate::config::DivisibleStateReplicaConfig;
 use crate::executable::divisible_state_exec::DivisibleStateExecutor;
 use crate::executable::ReplicaReplier;
@@ -25,9 +20,8 @@ use crate::persistent_log::SMRPersistentLog;
 use crate::server::client_replier::Replier;
 use crate::server::Replica;
 
-pub struct DivStReplica<RP, S, A, OP, ST, LT, NT, PL>
-    where RP: ReconfigurationProtocol + 'static,
-          S: DivisibleState + 'static,
+pub struct DivStReplica<S, A, OP, ST, LT, NT, PL>
+    where S: DivisibleState + 'static,
           A: Application<S> + Send + 'static,
           OP: StatefulOrderProtocol<A::AppData, NT, PL> + PersistableOrderProtocol<OP::Serialization, OP::StateSerialization> + 'static,
           ST: DivisibleStateTransfer<S, NT, PL> + PersistableStateTransferProtocol + 'static,
@@ -36,7 +30,7 @@ pub struct DivStReplica<RP, S, A, OP, ST, LT, NT, PL>
 {
     p: PhantomData<A>,
     /// The inner replica object, responsible for the general replica things
-    inner_replica: Replica<RP, S, A::AppData, OP, ST, LT, NT, PL>,
+    inner_replica: Replica<S, A::AppData, OP, ST, LT, NT, PL>,
 
     state_tx: ChannelSyncTx<InstallStateMessage<S>>,
     checkpoint_rx: ChannelSyncRx<AppStateMessage<S>>,
@@ -44,16 +38,15 @@ pub struct DivStReplica<RP, S, A, OP, ST, LT, NT, PL>
     state_transfer_protocol: ST,
 }
 
-impl<RP, S, A, OP, ST, LT, NT, PL> DivStReplica<RP, S, A, OP, ST, LT, NT, PL> where
-    RP: ReconfigurationProtocol + 'static,
+impl<S, A, OP, ST, LT, NT, PL> DivStReplica<S, A, OP, ST, LT, NT, PL> where
     S: DivisibleState + Send + 'static,
     A: Application<S> + Send + 'static,
     OP: StatefulOrderProtocol<A::AppData, NT, PL> + PersistableOrderProtocol<OP::Serialization, OP::StateSerialization> + Send + 'static,
     LT: LogTransferProtocol<A::AppData, OP, NT, PL> + 'static,
     ST: DivisibleStateTransfer<S, NT, PL> + PersistableStateTransferProtocol + Send + 'static,
     PL: SMRPersistentLog<A::AppData, OP::Serialization, OP::StateSerialization> + DivisibleStateLog<S> + 'static,
-    NT: FullNetworkNode<RP::InformationProvider, RP::Serialization, ServiceMsg<A::AppData, OP::Serialization, ST::Serialization, LT::Serialization>> + 'static {
-    pub async fn bootstrap(cfg: DivisibleStateReplicaConfig<RP, S, A, OP, ST, LT, NT, PL>) -> Result<Self> {
+    NT: Node<ServiceMsg<A::AppData, OP::Serialization, ST::Serialization, LT::Serialization>> + 'static {
+    pub async fn bootstrap(cfg: DivisibleStateReplicaConfig<S, A, OP, ST, LT, NT, PL>) -> Result<Self> {
         let DivisibleStateReplicaConfig {
             service, replica_config, st_config
         } = cfg;
@@ -61,7 +54,7 @@ impl<RP, S, A, OP, ST, LT, NT, PL> DivStReplica<RP, S, A, OP, ST, LT, NT, PL> wh
 
         let (executor_handle, executor_receiver) = DivisibleStateExecutor::<S, A, NT>::init_handle();
 
-        let inner_replica = Replica::<RP, S, A::AppData, OP, ST, LT, NT, PL>::bootstrap(replica_config, executor_handle.clone()).await?;
+        let inner_replica = Replica::<S, A::AppData, OP, ST, LT, NT, PL>::bootstrap(replica_config, executor_handle.clone()).await?;
 
         let node = inner_replica.node.clone();
 

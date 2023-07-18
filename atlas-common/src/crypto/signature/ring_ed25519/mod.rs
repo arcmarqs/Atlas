@@ -33,15 +33,12 @@ pub struct Signature(
 );
 
 impl KeyPair {
-    pub fn from_bytes(seed_bytes: &[u8]) -> Result<(Self, Vec<u8>)> {
+    pub fn from_bytes(seed_bytes: &[u8]) -> Result<Self> {
         let sk = rsig::Ed25519KeyPair::from_seed_unchecked(seed_bytes)
             .simple_msg(ErrorKind::CryptoSignatureRingEd25519, "Invalid seed for ed25519 key")?;
         let pk = sk.public_key().clone();
-        let pk_bytes = pk.as_ref();
-
-        let pk = PublicKey::from_bytes_unchecked(pk_bytes);
-
-        Ok((KeyPair { pk, sk }, pk_bytes.to_vec()))
+        let pk = PublicKey::from_bytes_unchecked(pk.as_ref());
+        Ok(KeyPair { pk, sk })
     }
 
     pub fn public_key(&self) -> &PublicKey {

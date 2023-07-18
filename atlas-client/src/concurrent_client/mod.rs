@@ -1,15 +1,12 @@
 use atlas_common::channel;
 use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx};
 use atlas_common::error::*;
+use atlas_common::ordering::SeqNo;
 use atlas_common::node_id::NodeId;
+use atlas_communication::Node;
 use atlas_execution::serialize::ApplicationData;
 use atlas_core::serialize::ClientServiceMsg;
 use std::sync::Arc;
-use atlas_communication::FullNetworkNode;
-use atlas_communication::protocol_node::ProtocolNetworkNode;
-use atlas_core::reconfiguration_protocol::ReconfigurationProtocol;
-use atlas_reconfiguration::message::ReconfData;
-use atlas_reconfiguration::network_reconfig::NetworkInfo;
 use crate::client::ClientData;
 use crate::client::{Client, ClientConfig, ClientType, register_callback, RequestCallback};
 
@@ -17,19 +14,16 @@ use crate::client::{Client, ClientConfig, ClientType, register_callback, Request
 /// as much as possible
 /// Can be cloned in order to be used in multiple locations simultaneously
 #[derive(Clone)]
-pub struct ConcurrentClient<RF, D: ApplicationData + 'static, NT: 'static> {
+pub struct ConcurrentClient<D: ApplicationData + 'static, NT: 'static> {
     id: NodeId,
-    client_data: Arc<ClientData<RF, D>>,
-    session_return: ChannelSyncTx<Client<RF, D, NT>>,
-    sessions: ChannelSyncRx<Client<RF, D, NT>>,
+    client_data: Arc<ClientData<D>>,
+    session_return: ChannelSyncTx<Client<D, NT>>,
+    sessions: ChannelSyncRx<Client<D, NT>>,
 }
 
-impl<RF, D, NT> ConcurrentClient<RF, D, NT>
-    where D: ApplicationData + 'static,
-          RF: ReconfigurationProtocol, NT: 'static {
+impl<D, NT> ConcurrentClient<D, NT> where D: ApplicationData + 'static, NT: 'static {
     /// Creates a new concurrent client, with the given configuration
-    pub async fn boostrap_client(cfg: ClientConfig<RF, D, NT>, session_limit: usize) -> Result<Self> where
-        NT: FullNetworkNode<RF::InformationProvider, RF::Serialization, ClientServiceMsg<D>> {
+    pub async fn boostrap_client(cfg: ClientConfig<D, NT>, session_limit: usize) -> Result<Self> where NT: Node<ClientServiceMsg<D>> {
         let (tx, rx) = channel::new_bounded_sync(session_limit);
 
         let client = Client::bootstrap(cfg).await?;
@@ -52,8 +46,7 @@ impl<RF, D, NT> ConcurrentClient<RF, D, NT>
     }
 
     /// Creates a new concurrent client, from an already existing client
-    pub fn from_client(client: Client<RF, D, NT>, session_limit: usize) -> Result<Self>
-        where NT: FullNetworkNode<NetworkInfo, ReconfData, ClientServiceMsg<D>> {
+    pub fn from_client(client: Client<D, NT>, session_limit: usize) -> Result<Self> where NT: Node<ClientServiceMsg<D>> {
         let (tx, rx) = channel::new_bounded_sync(session_limit);
 
         let id = client.id();
@@ -78,14 +71,14 @@ impl<RF, D, NT> ConcurrentClient<RF, D, NT>
         self.id
     }
 
-    fn get_session(&self) -> Result<Client<RF, D, NT>> {
+    fn get_session(&self) -> Result<Client<D, NT>> {
         self.sessions.recv().wrapped(ErrorKind::CommunicationChannelCrossbeam)
     }
 
     /// Updates the replicated state of the application running
     /// on top of `atlas`.
-    pub async fn update<T>(&self, request: D::Request) -> Result<D::Reply> where T: ClientType<RF, D, NT> + 'static,
-                                                                                 NT: FullNetworkNode<NetworkInfo, ReconfData, ClientServiceMsg<D>> {
+    pub async fn update<T>(&self, request: D::Request) -> Result<D::Reply> where T: ClientType<D, NT> + 'static,
+                                                                                 NT: Node<ClientServiceMsg<D>> {
         let mut session = self.get_session()?;
 
         let result = session.update::<T>(request).await;
@@ -103,8 +96,9 @@ impl<RF, D, NT> ConcurrentClient<RF, D, NT>
     /// will hurt the performance of the client. If you wish to perform heavy operations, move them
     /// to other threads to prevent slowdowns
     pub fn update_callback<T>(&self, request: D::Request, callback: RequestCallback<D>) -> Result<()>
-        where T: ClientType<RF, D, NT> + 'static,
-              NT: FullNetworkNode<NetworkInfo, ReconfData, ClientServiceMsg<D>> {
+        where T: ClientType<D, NT> + 'static,
+              NT: Node<ClientServiceMsg<D>> {
+
         let mut session = self.get_session()?;
 
         let session_return = self.session_return.clone();

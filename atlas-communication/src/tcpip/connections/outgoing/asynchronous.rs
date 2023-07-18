@@ -1,28 +1,22 @@
 use std::sync::Arc;
 use std::time::Instant;
 use futures::AsyncWriteExt;
-
-use log::error;
-use log::warn;
+use log::{debug, error, info, trace, warn};
 
 use atlas_common::async_runtime as rt;
 use atlas_common::error::*;
 use atlas_common::socket::{SecureWriteHalfAsync};
 use atlas_metrics::metrics::metric_duration;
+use crate::message::WireMessage;
 use crate::metric::{COMM_REQUEST_SEND_TIME_ID, COMM_RQ_SEND_CLI_PASSING_TIME_ID, COMM_RQ_SEND_PASSING_TIME_ID, COMM_RQ_TIME_SPENT_IN_MOD_ID};
-use crate::reconfiguration_node::NetworkInformationProvider;
 use crate::serialize::Serializable;
 
-use crate::tcpip::connections::{ConnHandle, NetworkSerializedMessage, PeerConnection, PeerConnections};
+use crate::tcpip::connections::{Callback, ConnHandle, NetworkSerializedMessage, PeerConnection};
 
-pub(super) fn spawn_outgoing_task<NI, RM, PM>(
+pub(super) fn spawn_outgoing_task<M: Serializable + 'static>(
     conn_handle: ConnHandle,
-    node_conns: Arc<PeerConnections<NI, RM, PM>>,
-    peer: Arc<PeerConnection<RM, PM>>,
-    mut socket: SecureWriteHalfAsync)
-    where NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          PM: Serializable + 'static {
+    peer: Arc<PeerConnection<M>>,
+    mut socket: SecureWriteHalfAsync) {
     rt::spawn(async move {
         let mut rx = peer.to_send_handle().clone();
 
@@ -76,19 +70,15 @@ pub(super) fn spawn_outgoing_task<NI, RM, PM>(
             }
         }
 
-        let remaining_conns = peer.delete_connection(conn_handle.id());
-
-        node_conns.handle_conn_lost(&peer.peer_node_id, remaining_conns);
+        peer.delete_connection(conn_handle.id());
     });
 }
 
-async fn send_message<RM, PM>(peer: &Arc<PeerConnection<RM, PM>>,
-                              socket: &mut SecureWriteHalfAsync,
-                              conn_handle: &ConnHandle,
-                              to_send: NetworkSerializedMessage,
-                              flush: bool) -> Result<()>
-    where RM: Serializable + 'static,
-          PM: Serializable + 'static {
+async fn send_message<M: Serializable + 'static>(peer: &Arc<PeerConnection<M>>,
+                                                 socket: &mut SecureWriteHalfAsync,
+                                                 conn_handle: &ConnHandle,
+                                                 to_send: NetworkSerializedMessage,
+                                                 flush: bool) -> Result<()> {
     let start = Instant::now();
 
     let (to_send, callback, dispatch_time, _, send_rq_time) = to_send;

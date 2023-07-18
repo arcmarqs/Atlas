@@ -4,7 +4,7 @@ use std::net::Shutdown;
 use std::sync::Arc;
 use std::time::Duration;
 use bytes::{Buf, Bytes, BytesMut};
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 use mio::{Events, Interest, Poll, Token, Waker};
 use mio::event::Event;
 use slab::Slab;
@@ -16,7 +16,6 @@ use crate::cpu_workers;
 use crate::message::{Header, WireMessage};
 use crate::mio_tcp::connections::{Connections, ConnHandle};
 use crate::mio_tcp::connections::epoll_group::{EpollWorkerId, EpollWorkerMessage, NewConnection};
-use crate::reconfiguration_node::NetworkInformationProvider;
 use super::PeerConnection;
 use crate::serialize::Serializable;
 
@@ -31,20 +30,18 @@ enum ConnectionWorkResult {
 
 type ConnectionRegister = ChannelSyncRx<MioSocket>;
 
+
 /// The information for this worker thread.
-pub(super) struct EpollWorker<NI, RM, PM>
-    where NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          PM: Serializable + 'static {
+pub(super) struct EpollWorker<M: Serializable + 'static> {
     // The id of this worker
     worker_id: EpollWorkerId,
     // A reference to our parent connections, so we can update it in case anything goes wrong
     // With any connections
-    global_connections: Arc<Connections<NI, RM, PM>>,
+    global_connections: Arc<Connections<M>>,
     // This slab stores the connections that are currently being handled by this worker
-    connections: Slab<SocketConnection<RM, PM>>,
+    connections: Slab<SocketConnection<M>>,
     // register new connections
-    connection_register: ChannelSyncRx<EpollWorkerMessage<RM, PM>>,
+    connection_register: ChannelSyncRx<EpollWorkerMessage<M>>,
     // The poll instance of this worker
     poll: Poll,
     // Waker
@@ -53,9 +50,7 @@ pub(super) struct EpollWorker<NI, RM, PM>
 }
 
 /// All information related to a given connection
-enum SocketConnection<RM, PM>
-    where RM: Serializable + 'static,
-          PM: Serializable + 'static {
+enum SocketConnection<M: Serializable + 'static> {
     PeerConn {
         // The handle of this connection
         handle: ConnHandle,
@@ -67,7 +62,7 @@ enum SocketConnection<RM, PM>
         // Option since we may not be writing anything at the moment
         writing_info: Option<WritingInformation>,
         // The connection to the peer this connection is a part of
-        connection: Arc<PeerConnection<RM, PM>>,
+        connection: Arc<PeerConnection<M>>,
     },
     Waker,
 }
@@ -86,14 +81,10 @@ struct WritingInformation {
     currently_writing: Bytes,
 }
 
-impl<NI, RM, PM> EpollWorker<NI, RM, PM>
-    where
-        NI: NetworkInformationProvider + 'static,
-        RM: Serializable + 'static,
-        PM: Serializable + 'static {
+impl<M> EpollWorker<M> where M: Serializable + 'static {
     /// Initializing a worker thread for the worker group
-    pub fn new(worker_id: EpollWorkerId, connections: Arc<Connections<NI, RM, PM>>,
-               register: ChannelSyncRx<EpollWorkerMessage<RM, PM>>) -> atlas_common::error::Result<Self> {
+    pub fn new(worker_id: EpollWorkerId, connections: Arc<Connections<M>>,
+               register: ChannelSyncRx<EpollWorkerMessage<M>>) -> atlas_common::error::Result<Self> {
         let poll = Poll::new().wrapped_msg(ErrorKind::Communication, "Failed to initialize poll")?;
 
         let mut conn_slab = Slab::with_capacity(DEFAULT_SOCKET_CAPACITY);
@@ -120,6 +111,7 @@ impl<NI, RM, PM> EpollWorker<NI, RM, PM>
     }
 
 
+
     pub(super) fn epoll_worker_loop(mut self) -> io::Result<()> {
         let mut event_queue = Events::with_capacity(EVENT_CAPACITY);
 
@@ -143,6 +135,7 @@ impl<NI, RM, PM> EpollWorker<NI, RM, PM>
             trace!("{:?} // Worker {}: Handling {} events {:?}", self.global_connections.id, self.worker_id, event_queue.iter().count(), event_queue);
 
             for event in event_queue.iter() {
+
                 if event.token() == waker_token {
                     // Indicates that we should try to write from the connections
                     let connections_to_analyse: Vec<Token> = self.connections.iter()
@@ -155,8 +148,9 @@ impl<NI, RM, PM> EpollWorker<NI, RM, PM>
                         .collect();
 
                     for token in connections_to_analyse {
+
                         if !self.connections.contains(token.into()) {
-                            continue;
+                            continue
                         }
 
                         match self.try_write_until_block(token) {
@@ -198,7 +192,7 @@ impl<NI, RM, PM> EpollWorker<NI, RM, PM>
 
                     if !self.connections.contains(token.into()) {
                         // In case the waker already deleted this socket
-                        continue;
+                        continue
                     }
 
                     match self.handle_connection_event(token, &event) {
@@ -443,9 +437,7 @@ impl<NI, RM, PM> EpollWorker<NI, RM, PM>
                             let message = read_info.read_buffer.split_to(header.payload_length());
 
                             // We have read the message, send it to be verified and then put into the client pool
-                            cpu_workers::deserialize_and_push_message::<RM, PM>(header, message,
-                                                                      connection.client.clone(),
-                                                                      connection.reconf_handling.clone());
+                            cpu_workers::deserialize_and_push_message(header, message, connection.client.clone());
 
                             read_info.read_bytes = read_info.read_buffer.len();
 
@@ -552,7 +544,7 @@ impl<NI, RM, PM> EpollWorker<NI, RM, PM>
         Ok(())
     }
 
-    fn create_connection(&mut self, conn: NewConnection<RM, PM>) -> io::Result<()> {
+    fn create_connection(&mut self, conn: NewConnection<M>) -> io::Result<()> {
         let NewConnection {
             conn_id, peer_id,
             my_id, mut socket,
@@ -674,17 +666,13 @@ pub fn interrupted(err: &io::Error) -> bool {
     err.kind() == io::ErrorKind::Interrupted
 }
 
-impl<RM, PM> NewConnection<RM, PM>
-    where RM: Serializable + 'static,
-          PM: Serializable + 'static {
-    pub fn new(conn_id: u32, peer_id: NodeId, my_id: NodeId, socket: MioSocket, peer_conn: Arc<PeerConnection<RM, PM>>) -> Self {
+impl<M> NewConnection<M> where M: Serializable + 'static {
+    pub fn new(conn_id: u32, peer_id: NodeId, my_id: NodeId, socket: MioSocket, peer_conn: Arc<PeerConnection<M>>) -> Self {
         Self { conn_id, peer_id, my_id, socket, peer_conn }
     }
 }
 
-impl<RM, PM> SocketConnection<RM, PM>
-    where RM: Serializable + 'static,
-          PM: Serializable + 'static {
+impl<M> SocketConnection<M> where M: Serializable + 'static {
     fn peer_id(&self) -> Option<NodeId> {
         match self {
             SocketConnection::PeerConn { handle, .. } => {
