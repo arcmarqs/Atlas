@@ -689,7 +689,7 @@ impl<S, D, OPM, SOPM, STM> DivisibleStatePersistentLog<S, D, OPM, SOPM, STM>
           SOPM: StatefulOrderProtocolMessage + 'static,
           STM: StateTransferMessage + 'static
 {
-    fn init_div_log<K, T, POS, PSP>(executor: ExecutorHandle<D>, db_path: K) -> Result<Self>
+    pub fn init_div_log<K, T, POS, PSP>(executor: ExecutorHandle<D>, db_path: K) -> Result<Self>
         where
             K: AsRef<Path>,
             T: PersistentLogModeTrait,
@@ -750,6 +750,18 @@ impl<S, D, OPM, SOPM, STM> DivisibleStatePersistentLog<S, D, OPM, SOPM, STM>
             inner_log: init_log,
         })
     }
+
+    #[inline]
+    pub fn wait_for_batch_persistency_and_execute(&self, batch: ProtocolConsensusDecision<D::Request>) -> Result<Option<ProtocolConsensusDecision<D::Request>>> {
+        self.inner_log.wait_for_batch_persistency_and_execute(batch)
+    }
+
+
+    #[inline]
+    pub fn wait_for_proof_persistency_and_execute(&self, batch: ProtocolConsensusDecision<D::Request>) -> Result<Option<ProtocolConsensusDecision<D::Request>>> {
+        self.inner_log.wait_for_proof_persistency_and_execute(batch)
+    }
+    
 }
 
 impl<S, D, OPM, SOPM, STM> OrderingProtocolLog<OPM> for DivisibleStatePersistentLog<S, D, OPM, SOPM, STM>

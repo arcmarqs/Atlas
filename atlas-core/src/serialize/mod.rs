@@ -23,6 +23,8 @@ pub trait NetworkView: Orderable + Clone {
     fn f(&self) -> usize;
 
     fn n(&self) -> usize;
+
+    fn quorum_members(&self) -> &Vec<NodeId>;
 }
 
 pub trait OrderProtocolLog: Orderable {
@@ -195,6 +197,11 @@ impl NetworkView for NoView {
     fn n(&self) -> usize {
         unimplemented!()
     }
+
+    fn quorum_members(&self) -> &Vec<NodeId> {
+        unimplemented!()
+    }
+
 }
 
 impl OrderingProtocolMessage for NoProtocol {

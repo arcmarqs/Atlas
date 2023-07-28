@@ -5,8 +5,9 @@ use atlas_core::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessag
 use atlas_execution::serialize::ApplicationData;
 use atlas_common::error::*;
 use atlas_execution::ExecutorHandle;
+use atlas_execution::state::divisible_state::DivisibleState;
 use atlas_execution::state::monolithic_state::MonolithicState;
-use atlas_persistent_log::{MonStatePersistentLog, PersistentLog, PersistentLogModeTrait};
+use atlas_persistent_log::{MonStatePersistentLog, PersistentLog, PersistentLogModeTrait, DivisibleStatePersistentLog};
 
 pub trait SMRPersistentLog<D, OPM, SOPM>: OrderingProtocolLog<OPM> + StatefulOrderingProtocolLog<OPM, SOPM>
     where D: ApplicationData + 'static,
@@ -48,6 +49,42 @@ impl<S, D, OPM, SOPM, STM> SMRPersistentLog<D, OPM, SOPM> for MonStatePersistent
     }
 
     fn wait_for_batch_persistency_and_execute(&self, batch: ProtocolConsensusDecision<D::Request>) -> Result<Option<ProtocolConsensusDecision<D::Request>>> {
+        self.wait_for_batch_persistency_and_execute(batch)
+    }
+}
+
+impl<S, D, OPM, SOPM, STM> SMRPersistentLog<D, OPM, SOPM> for DivisibleStatePersistentLog<S, D, OPM, SOPM, STM>
+where
+    S: DivisibleState + 'static,
+    D: ApplicationData + 'static,
+    OPM: OrderingProtocolMessage + 'static,
+    SOPM: StatefulOrderProtocolMessage + 'static,
+    STM: StateTransferMessage + 'static,
+{
+    type Config = ();
+
+    fn init_log<K, T, POS, PSP>(executor: ExecutorHandle<D>, db_path: K) -> Result<Self>
+    where
+        K: AsRef<Path>,
+        T: PersistentLogModeTrait,
+        POS: PersistableOrderProtocol<OPM, SOPM> + Send + 'static,
+        PSP: PersistableStateTransferProtocol + Send + 'static,
+        Self: Sized,
+    {
+        atlas_persistent_log::DivisibleStatePersistentLog::init_div_log::<K,T,POS,PSP>(executor,db_path)
+    }
+
+    fn wait_for_proof_persistency_and_execute(
+        &self,
+        batch: ProtocolConsensusDecision<<D as ApplicationData>::Request>,
+    ) -> Result<Option<ProtocolConsensusDecision<<D as ApplicationData>::Request>>> {
+        self.wait_for_proof_persistency_and_execute(batch)
+    }
+
+    fn wait_for_batch_persistency_and_execute(
+        &self,
+        batch: ProtocolConsensusDecision<<D as ApplicationData>::Request>,
+    ) -> Result<Option<ProtocolConsensusDecision<<D as ApplicationData>::Request>>> {
         self.wait_for_batch_persistency_and_execute(batch)
     }
 }
