@@ -1,5 +1,5 @@
 use atlas_common::{crypto::hash::*, ordering::SeqNo};
-use serde::{Serialize, Deserialize, ser::{SerializeMap, SerializeStruct}};
+use serde::{Serialize, Deserialize};
 use std::{
     collections::BTreeMap,
     sync::{Arc, RwLock}, cmp::Ordering,

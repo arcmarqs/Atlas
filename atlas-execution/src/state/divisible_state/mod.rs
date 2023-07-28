@@ -47,18 +47,28 @@ pub trait StatePart<S: DivisibleState + ?Sized> {
 
     fn descriptor(&self) -> &S::PartDescription;
 
+    fn id(&self) -> u64;
+
+    fn length(&self) -> usize;
+
+    fn bytes(&self) -> &[u8];
+
+}
+
+pub trait PartDescription {
+    fn id(&self) -> &u64;
 }
 
 ///
 /// The trait that represents a divisible state, to be used by the state transfer protocol
 ///
-pub trait DivisibleState: Sized {
+pub trait DivisibleState: Sized + Send + Clone{
 
     #[cfg(feature = "serialize_serde")]
-    type PartDescription: PartId + for<'a> Deserialize<'a> + Serialize + Send + Clone;
+    type PartDescription: PartDescription + PartId + for<'a> Deserialize<'a> + Serialize + Send + Clone;
 
     #[cfg(feature = "serialize_capnp")]
-    type PartDescription: PartId + Send + Clone;
+    type PartDescription: PartDescription + PartId + Send + Clone;
 
     #[cfg(feature = "serialize_serde")]
     type StateDescriptor: DivisibleStateDescriptor<Self> + for<'a> Deserialize<'a> + Serialize + Send + Clone;

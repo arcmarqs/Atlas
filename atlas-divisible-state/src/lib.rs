@@ -3,7 +3,7 @@ use std::sync::{RwLock, Arc};
 
 use atlas_common::{crypto::hash::Digest, ordering::Orderable};
 use atlas_common::ordering::{self, SeqNo};
-use atlas_execution::state::divisible_state::{StatePart, DivisibleState, PartId, DivisibleStateDescriptor};
+use atlas_execution::state::divisible_state::{StatePart, DivisibleState, PartId, DivisibleStateDescriptor, PartDescription};
 use serde::{Serialize, Deserialize};
 use sled::{Serialize as sled_serialize};
 use state_orchestrator::{StateOrchestrator, StateDescriptor};
@@ -39,8 +39,19 @@ impl StatePart<StateOrchestrator> for SerializedState {
     fn descriptor(&self) -> &LeafNode {
         &self.leaf
     }
-}
 
+    fn id(&self) -> u64 {
+        self.pid
+    }
+
+    fn length(&self) -> usize {
+        self.bytes.len()
+    }
+
+    fn bytes(&self) -> &[u8] {
+        self.bytes.as_ref()
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedTree {
     root_digest: Digest,
@@ -147,6 +158,12 @@ impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
 impl PartId for LeafNode {
     fn content_description(&self) -> Digest {
         self.get_digest()
+    }
+}
+
+impl PartDescription for LeafNode {
+    fn id(&self) -> &u64 {
+        &self.pid
     }
 }
 

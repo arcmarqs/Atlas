@@ -12,6 +12,11 @@ pub struct StateDescriptor {
     updates: Arc<RwLock<BTreeMap<u64,NodeEvent>>>,
     tree: Arc<Mutex<StateTree>>,
 }
+impl Clone for StateDescriptor {
+    fn clone(&self) -> Self {
+        Self { update_counter: AtomicU32::new(self.update_counter.load(Ordering::SeqCst)), updates: self.updates.clone(), tree: self.tree.clone() }
+    }
+}
 
 impl StateDescriptor {
 
@@ -68,7 +73,7 @@ impl StateDescriptor {
 
 #[derive(Debug,Clone)]
 pub struct StateOrchestrator {
-    pub db: Db,
+    pub db: Arc<Db>,
     pub descriptor: Arc<StateDescriptor>,
 }
 
@@ -84,9 +89,9 @@ impl StateOrchestrator {
         let db = conf.open().unwrap(); 
         
         let descriptor = Arc::new(StateDescriptor::new());
-       
+        
        Self {
-            db,
+            db: Arc::new(db),
             descriptor,
         }
     }
