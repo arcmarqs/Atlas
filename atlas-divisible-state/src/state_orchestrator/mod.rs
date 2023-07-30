@@ -1,10 +1,11 @@
 use std::{sync::{Arc, RwLock, Mutex, atomic::{Ordering, AtomicU32}}, collections::BTreeMap};
 
-use atlas_common::{crypto::hash::{Context, Digest}, ordering::SeqNo};
+use atlas_common::{crypto::hash::{Context, Digest}, ordering::SeqNo, async_runtime::spawn};
+use serde::{Serialize,Deserialize};
 use sled::{NodeEvent, Db, Mode, Config, Subscriber, EventType};
 use crate::{state_tree::{StateTree, LeafNode, Node}, SerializedTree};
 
-const UPDATE_SIZE: u32 = 5000;
+const UPDATE_SIZE: u32 = 500;
 
 #[derive(Debug, Default)]
 pub struct StateDescriptor {
@@ -71,10 +72,13 @@ impl StateDescriptor {
     }
 }
 
-#[derive(Debug,Clone)]
+#[derive(Debug,Clone,Serialize,Deserialize)]
 pub struct StateOrchestrator {
+    #[serde(skip_serializing,skip_deserializing)]
     pub db: Arc<Db>,
+    #[serde(skip_serializing,skip_deserializing)]
     pub descriptor: Arc<StateDescriptor>,
+
 }
 
 impl StateOrchestrator {
@@ -89,7 +93,12 @@ impl StateOrchestrator {
         let db = conf.open().unwrap(); 
         
         let descriptor = Arc::new(StateDescriptor::new());
-        
+
+        let _ = spawn(monitor_changes(
+            descriptor.clone(),
+            db.watch_prefix(vec![]),
+        ));
+
        Self {
             db: Arc::new(db),
             descriptor,

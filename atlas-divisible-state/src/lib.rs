@@ -105,6 +105,11 @@ impl StateTree {
     }
 
     pub fn full_serialized_tree(&self) -> Result<SerializedTree, ()> {
+        println!("seqno is: {:?}", self.seqno);
+        if self.seqno == SeqNo::ONE {
+           return Ok(SerializedTree::new(Digest::blank(),self.seqno,vec![]));
+        }
+
         let root = self.bag_peaks();
         if let Some(root) = root {
             self.to_serialized_tree(root)
@@ -175,7 +180,7 @@ impl DivisibleState for StateOrchestrator {
     type StatePart = SerializedState;
 
     fn get_descriptor(&self) -> Self::StateDescriptor {
-        self.get_descriptor().unwrap().clone()
+        self.get_descriptor().unwrap()
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
