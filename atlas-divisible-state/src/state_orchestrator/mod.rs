@@ -94,11 +94,14 @@ impl StateOrchestrator {
         
         let descriptor = Arc::new(StateDescriptor::new());
 
-        let _ = spawn(monitor_changes(
-            descriptor.clone(),
-            db.watch_prefix(vec![]),
-        ));
-
+        std::thread::Builder::new()
+        .name(format!("DB_Monitor"))
+        .spawn(move || {
+            monitor_changes(
+                descriptor.clone(),
+                db.watch_prefix(vec![]))
+        }).expect("Failed to launch DB Monitor thread");
+        
        Self {
             db: Arc::new(db),
             descriptor,
