@@ -5,8 +5,8 @@ use std::sync::{Mutex};
 use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::SeqNo;
-use atlas_communication::{Node, NodeConnections};
-use atlas_communication::tcpip::TlsNodeConnector;
+use atlas_communication::{ NodeConnections};
+use atlas_communication::protocol_node::ProtocolNetworkNode;
 use atlas_execution::serialize::ApplicationData;
 use atlas_core::messages::{RequestMessage, SystemMessage};
 use atlas_core::serialize::{ClientMessage, ClientServiceMsg};
@@ -46,7 +46,7 @@ impl FollowerData {
     }
 }
 
-impl<D, NT> Client<D, NT>
+impl<RF, D, NT> Client<RF, D, NT>
     where
         D: ApplicationData + 'static,
 {
@@ -54,7 +54,7 @@ impl<D, NT> Client<D, NT>
     ///
     /// Returns Err if we are already connecting to or connected to
     /// the given follower.
-    fn connect_to_follower(&self, node_id: NodeId) -> Result<()> where NT: Node<ClientServiceMsg<D>> {
+    fn connect_to_follower(&self, node_id: NodeId) -> Result<()> where NT: ProtocolNetworkNode<ClientServiceMsg<D>> {
         {
             let connecting = self.data.follower_data.connecting_followers.lock().unwrap();
 
@@ -97,7 +97,7 @@ impl<D, NT> Client<D, NT>
 
 pub struct Unordered;
 
-impl<D, NT> ClientType<D, NT> for Unordered
+impl<RF, D, NT> ClientType<RF, D, NT> for Unordered
     where
         D: ApplicationData + 'static,
 {
@@ -112,7 +112,7 @@ impl<D, NT> ClientType<D, NT> for Unordered
 
     type Iter = impl Iterator<Item=NodeId>;
 
-    fn init_targets(client: &Client<D, NT>) -> (Self::Iter, usize) {
+    fn init_targets(client: &Client<RF, D, NT>) -> (Self::Iter, usize) {
         //TODO: Atm we are using all followers, we should choose a small number of them and
         // Send it to those. (Maybe the ones that are closes? TBD)
         let connected_followers: Vec<NodeId> = client
@@ -136,7 +136,7 @@ impl<D, NT> ClientType<D, NT> for Unordered
         };
     }
 
-    fn needed_responses(client: &Client<D, NT>) -> usize {
+    fn needed_responses(client: &Client<RF, D, NT>) -> usize {
         let f = client.params.f();
 
         match client.data.follower_data.unordered_request_mode {

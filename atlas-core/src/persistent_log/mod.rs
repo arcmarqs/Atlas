@@ -1,19 +1,16 @@
-use std::path::Path;
 use std::sync::Arc;
 #[cfg(feature = "serialize_serde")]
 use ::serde::{Deserialize, Serialize};
-use atlas_execution::ExecutorHandle;
 use atlas_common::error::*;
 use atlas_common::globals::ReadOnly;
-use atlas_common::ordering::{Orderable, SeqNo};
+use atlas_common::ordering::{SeqNo};
 use atlas_communication::message::StoredMessage;
-use atlas_execution::serialize::ApplicationData;
 use atlas_execution::state::divisible_state::DivisibleState;
 use atlas_execution::state::monolithic_state::MonolithicState;
-use crate::ordering_protocol::{OrderingProtocol, ProtocolConsensusDecision, ProtocolMessage, SerProof, SerProofMetadata, View};
-use crate::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessage, StateTransferMessage};
-use crate::state_transfer::{Checkpoint, StateTransferProtocol};
-use crate::state_transfer::log_transfer::DecLog;
+use crate::ordering_protocol::stateful_order_protocol::DecLog;
+use crate::ordering_protocol::{LoggableMessage, ProtocolMessage, SerProof, SerProofMetadata, View};
+use crate::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessage};
+use crate::state_transfer::{Checkpoint};
 
 
 ///How should the data be written and response delivered?
@@ -40,16 +37,16 @@ pub trait PersistableOrderProtocol<OPM, SOPM> where OPM: OrderingProtocolMessage
 
     /// Get the message type for a given message, must correspond to a string returned by
     /// [PersistableOrderProtocol::message_types]
-    fn get_type_for_message(msg: &ProtocolMessage<OPM>) -> Result<&'static str>;
+    fn get_type_for_message(msg: &LoggableMessage<OPM>) -> Result<&'static str>;
 
     /// Initialize a proof from the metadata and messages stored in persistent storage
-    fn init_proof_from(metadata: SerProofMetadata<OPM>, messages: Vec<StoredMessage<ProtocolMessage<OPM>>>) -> SerProof<OPM>;
+    fn init_proof_from(metadata: SerProofMetadata<OPM>, messages: Vec<StoredMessage<LoggableMessage<OPM>>>) -> SerProof<OPM>;
 
     /// Initialize a decision log from the messages stored in persistent storage
     fn init_dec_log(proofs: Vec<SerProof<OPM>>) -> DecLog<SOPM>;
 
     /// Decompose a given proof into it's metadata and messages, ready to be persisted
-    fn decompose_proof(proof: &SerProof<OPM>) -> (&SerProofMetadata<OPM>, Vec<&StoredMessage<ProtocolMessage<OPM>>>);
+    fn decompose_proof(proof: &SerProof<OPM>) -> (&SerProofMetadata<OPM>, Vec<&StoredMessage<LoggableMessage<OPM>>>);
 
     /// Decompose a decision log into its separate proofs, so they can then be further decomposed
     /// into metadata and messages
@@ -68,7 +65,7 @@ pub trait OrderingProtocolLog<OP>: Clone where OP: OrderingProtocolMessage {
     fn write_view_info(&self, write_mode: OperationMode, view_seq: View<OP>) -> Result<()>;
 
     /// Write a given message to the persistent log
-    fn write_message(&self, write_mode: OperationMode, msg: Arc<ReadOnly<StoredMessage<ProtocolMessage<OP>>>>) -> Result<()>;
+    fn write_message(&self, write_mode: OperationMode, msg: Arc<ReadOnly<StoredMessage<LoggableMessage<OP>>>>) -> Result<()>;
 
     /// Write the metadata for a given proof to the persistent log
     /// This in combination with the messages for that sequence number should form a valid proof

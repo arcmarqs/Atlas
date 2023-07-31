@@ -1,20 +1,21 @@
-mod worker;
-
-use std::collections::BTreeSet;
 use std::iter;
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
+
 use log::{error, warn};
+
 use atlas_common::channel;
 use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx};
-use atlas_common::crypto::hash::Digest;
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::SeqNo;
 use atlas_execution::serialize::ApplicationData;
+
 use crate::messages::{ClientRqInfo, Message};
 use crate::request_pre_processing::work_dividers::WDRoundRobin;
 use crate::request_pre_processing::WorkPartitioner;
 use crate::timeouts::worker::{TimeoutWorker, TimeoutWorkerMessage};
+
+mod worker;
 
 const CHANNEL_SIZE: usize = 16384;
 
@@ -44,6 +45,9 @@ pub enum TimeoutKind {
     /// As for LTP messages, they are also not particularly ordered, similarly to the 
     /// messages sent by the state transfer protocol
     LogTransfer(SeqNo),
+
+    /// Reconfiguration message timeouts
+    Reconfiguration(SeqNo),
 }
 
 #[derive(Clone, Debug)]
@@ -67,6 +71,7 @@ enum MessageType {
     ResetClientTimeouts(Duration),
     ClearClientTimeouts(Option<Vec<ClientRqInfo>>),
     ClearCstTimeouts(Option<SeqNo>),
+    ClearReconfigTimeouts(Option<SeqNo>),
 }
 
 enum ReceivedRequest {
@@ -76,7 +81,9 @@ enum ReceivedRequest {
     //Node
     Cst(NodeId, SeqNo),
     // Log transfer message
-    LT(NodeId, SeqNo)
+    LT(NodeId, SeqNo),
+    // Received a reconfiguration request response
+    Reconfiguration(NodeId, SeqNo),
 }
 
 struct RqTimeoutMessage {
@@ -100,7 +107,6 @@ impl Timeouts {
                                              loopback_channel: ChannelSyncTx<Message>) -> Self {
         launch_orchestrator_thread::<WDRoundRobin, D>(2, node_id, default_timeout, loopback_channel)
     }
-
 
     /// Start a timeout request on the list of digests that have been provided
     pub fn timeout_client_requests(&self, timeout: Duration, requests: Vec<ClientRqInfo>) {
@@ -169,6 +175,14 @@ impl Timeouts {
         })).expect("Failed to contact timeout thread");
     }
 
+    pub fn timeout_reconfig_request(&self, timeout: Duration, requests_needed: u32, seq_no: SeqNo) {
+        self.handle.send(TimeoutMessage::TimeoutRequest(RqTimeoutMessage {
+            timeout,
+            notifications_needed: requests_needed,
+            timeout_info: vec![TimeoutKind::Reconfiguration(seq_no)],
+        })).expect("Failed to contact timeout thread");
+    }
+
     /// Handle having received a cst request
     pub fn received_cst_request(&self, from: NodeId, seq_no: SeqNo) {
         self.handle.send(TimeoutMessage::MessagesReceived(
@@ -183,12 +197,24 @@ impl Timeouts {
             .expect("Failed to contact timeout thread");
     }
 
+    pub fn received_reconfig_request(&self, from: NodeId, seq_no: SeqNo) {
+        self.handle.send(TimeoutMessage::MessagesReceived(
+            ReceivedRequest::Reconfiguration(from, seq_no)))
+            .expect("Failed to contact timeout thread");
+    }
+
     /// Cancel timeouts of CST messages.
     /// This accepts an option. If this Option is None, then the
     /// timeouts for all CST requests are going to be disabled.
     pub fn cancel_cst_timeout(&self, seq_no: Option<SeqNo>) {
         self.handle.send(TimeoutMessage::ClearCstTimeouts(seq_no))
             .expect("Failed to contact timeout thread");
+    }
+
+    /// Cancel timeouts of reconfig messages
+    pub fn cancel_reconfig_timeout(&self, seq_no: Option<SeqNo>) {
+        self.handle.send(TimeoutMessage::ClearReconfigTimeouts(seq_no))
+            .expect("Failed to contact timeout thread")
     }
 }
 
@@ -239,9 +265,10 @@ impl<WP, D> TimeoutOrchestrator<WP, D> {
                     self.handle_clear_client_timeouts(clear_timeouts);
                 }
                 TimeoutMessage::ClearCstTimeouts(seq) => {
-                    for worker in &self.worker_channel {
-                        worker.send(TimeoutWorkerMessage::ClearCstTimeouts(seq)).expect("Failed to contact worker");
-                    }
+                    self.worker_channel[0].send(TimeoutWorkerMessage::ClearCstTimeouts(seq)).expect("Failed to contact worker");
+                }
+                TimeoutMessage::ClearReconfigTimeouts(seq) => {
+                    self.worker_channel[0].send(TimeoutWorkerMessage::ClearReconfigTimeouts(seq)).expect("Failed to contact worker")
                 }
             }
         }
@@ -261,10 +288,7 @@ impl<WP, D> TimeoutOrchestrator<WP, D> {
 
                     separated_vecs[worker].push(timeout);
                 }
-                TimeoutKind::Cst(_) => {
-                    separated_vecs[0].push(timeout);
-                }
-                TimeoutKind::LogTransfer(_) => {
+                _ => {
                     separated_vecs[0].push(timeout);
                 }
             }
@@ -299,10 +323,16 @@ impl<WP, D> TimeoutOrchestrator<WP, D> {
                 }
             }
             ReceivedRequest::Cst(sender, seq) => {
-                for work_channel in &self.worker_channel {
-                    work_channel.send(TimeoutWorkerMessage::MessagesReceived(ReceivedRequest::Cst(sender, seq)))
-                        .expect("Failed to send worker message");
-                }
+                self.worker_channel[0].send(TimeoutWorkerMessage::MessagesReceived(ReceivedRequest::Cst(sender, seq)))
+                    .expect("Failed to send worker message");
+            }
+            ReceivedRequest::LT(sender, seq) => {
+                self.worker_channel[0].send(TimeoutWorkerMessage::MessagesReceived(ReceivedRequest::LT(sender, seq)))
+                    .expect("Failed to send worker message");
+            }
+            ReceivedRequest::Reconfiguration(sender, seq) => {
+                self.worker_channel[0].send(TimeoutWorkerMessage::MessagesReceived(ReceivedRequest::Reconfiguration(sender.clone(), seq)))
+                    .expect("Failed to send worker message");
             }
             ReceivedRequest::LT(sender, seq) => {
                 for work_channel in &self.worker_channel {
@@ -339,7 +369,6 @@ impl<WP, D> TimeoutOrchestrator<WP, D> {
     }
 
     fn init_worker_separated_vec<T, F>(&self, capacity: F) -> Vec<T> where F: FnMut() -> T {
-
         iter::repeat_with(capacity)
             .take(self.worker_count as usize).collect()
     }

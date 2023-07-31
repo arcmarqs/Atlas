@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicUsize;
 use atlas_common::channel;
 use atlas_common::channel::ChannelSyncTx;
 use atlas_common::crypto::hash::Digest;
+use atlas_core::ordering_protocol::stateful_order_protocol::DecLog;
 use atlas_execution::ExecutorHandle;
 use atlas_execution::serialize::ApplicationData;
 use atlas_common::error::*;
@@ -15,11 +16,10 @@ use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_common::persistentdb::KVDB;
 use atlas_common::socket::init;
 use atlas_communication::message::StoredMessage;
-use atlas_core::ordering_protocol::{ProtocolConsensusDecision, ProtocolMessage, SerProof, SerProofMetadata, View};
+use atlas_core::ordering_protocol::{LoggableMessage, ProtocolConsensusDecision, ProtocolMessage, SerProof, SerProofMetadata, View};
 use atlas_core::persistent_log::{DivisibleStateLog, MonolithicStateLog, OrderingProtocolLog, PersistableOrderProtocol, PersistableStateTransferProtocol, StatefulOrderingProtocolLog, OperationMode};
 use atlas_core::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessage, StateTransferMessage};
 use atlas_core::state_transfer::{Checkpoint};
-use atlas_core::state_transfer::log_transfer::DecLog;
 use atlas_execution::state::divisible_state::DivisibleState;
 use atlas_execution::state::monolithic_state::MonolithicState;
 use crate::backlog::{ConsensusBacklog, ConsensusBackLogHandle};
@@ -162,7 +162,7 @@ pub enum PWMessage<OPM: OrderingProtocolMessage, SOPM: StatefulOrderProtocolMess
     ProofMetadata(SerProofMetadata<OPM>),
 
     //Persist a given message into storage
-    Message(Arc<ReadOnly<StoredMessage<ProtocolMessage<OPM>>>>),
+    Message(Arc<ReadOnly<StoredMessage<LoggableMessage<OPM>>>>),
 
     //Remove all associated stored messages for this given seq number
     Invalidate(SeqNo),
@@ -387,7 +387,7 @@ impl<D, OPM, SOPM, STM> OrderingProtocolLog<OPM> for PersistentLog<D, OPM, SOPM,
     }
 
     #[inline]
-    fn write_message(&self, write_mode: OperationMode, msg: Arc<ReadOnly<StoredMessage<ProtocolMessage<OPM>>>>) -> Result<()> {
+    fn write_message(&self, write_mode: OperationMode, msg: Arc<ReadOnly<StoredMessage<LoggableMessage<OPM>>>>) -> Result<()> {
         match self.persistency_mode {
             PersistentLogMode::Strict(_) | PersistentLogMode::Optimistic => {
                 match write_mode {
@@ -646,7 +646,7 @@ impl<S, D, OPM, SOPM, STM> OrderingProtocolLog<OPM> for MonStatePersistentLog<S,
     }
 
     #[inline]
-    fn write_message(&self, write_mode: OperationMode, msg: Arc<ReadOnly<StoredMessage<ProtocolMessage<OPM>>>>) -> Result<()> {
+    fn write_message(&self, write_mode: OperationMode, msg: Arc<ReadOnly<StoredMessage<LoggableMessage<OPM>>>>) -> Result<()> {
         self.inner_log.write_message(write_mode, msg)
     }
 
@@ -779,7 +779,7 @@ impl<S, D, OPM, SOPM, STM> OrderingProtocolLog<OPM> for DivisibleStatePersistent
         self.inner_log.write_view_info(write_mode, view_seq)
     }
 
-    fn write_message(&self, write_mode: OperationMode, msg: Arc<ReadOnly<StoredMessage<ProtocolMessage<OPM>>>>) -> Result<()> {
+    fn write_message(&self, write_mode: OperationMode, msg: Arc<ReadOnly<StoredMessage<LoggableMessage<OPM>>>>) -> Result<()> {
         self.inner_log.write_message(write_mode, msg)
     }
 
