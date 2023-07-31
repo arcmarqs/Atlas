@@ -5,7 +5,6 @@ use std::sync::Arc;
 use atlas_common::error::*;
 use atlas_common::ordering::SeqNo;
 use atlas_communication::message::StoredMessage;
-use atlas_communication::protocol_node::ProtocolNetworkNode;
 use atlas_execution::serialize::ApplicationData;
 use crate::messages::{LogTransfer, StateTransfer};
 use crate::ordering_protocol::{OrderingProtocol, OrderingProtocolArgs, SerProof, View};

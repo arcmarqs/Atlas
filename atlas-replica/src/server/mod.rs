@@ -232,9 +232,11 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
         self.receive_internal(state_transfer)?;
 
         metric_duration(REPLICA_INTERNAL_PROCESS_TIME_ID, now.elapsed());
-
+    
         match &self.replica_phase {
             ReplicaPhase::OrderingProtocol => {
+                println!("Running OP");
+
                 let poll_res = self.ordering_protocol.poll();
 
                 trace!("{:?} // Polling ordering protocol with result {:?}", ProtocolNetworkNode::id(&*self.node), poll_res);
@@ -353,6 +355,7 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                                     self.executor_handle.poll_state_channel()?;
                                 }
                                 STResult::StateTransferFinished(seq_no) => {
+
                                     info!("{:?} // State transfer finished. Installing state in executor and running ordering protocol", ProtocolNetworkNode::id(&*self.node));
 
                                     self.executor_handle.poll_state_channel()?;
@@ -360,9 +363,11 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                                     self.state_transfer_protocol_done(state_transfer, seq_no)?;
                                 }
                                 STResult::StateTransferNotNeeded(curr_seq) => {
+
                                     self.state_transfer_protocol_done(state_transfer, curr_seq)?;
                                 }
                                 STResult::RunStateTransfer => {
+
                                     self.run_state_transfer_protocol(state_transfer)?;
                                 }
                             }
@@ -373,7 +378,6 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                             let start = Instant::now();
 
                             let result = self.log_transfer_protocol.process_message(&mut self.ordering_protocol, StoredMessage::new(header, log_transfer))?;
-
                             match result {
                                 LTResult::RunLTP => {
                                     self.run_log_transfer_protocol(state_transfer)?;
@@ -630,8 +634,10 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
     /// Handle the log transfer and the state transfer protocol finishing
     /// their execution
     fn finish_state_transfer(&mut self, state_transfer_protocol: &mut ST) -> Result<()> {
+        println!("finish state transfer");
         match &self.replica_phase {
-            ReplicaPhase::OrderingProtocol => {}
+            ReplicaPhase::OrderingProtocol => {                    println!("NoOp");
+        }
             ReplicaPhase::StateTransferProtocol { state_transfer, log_transfer } => {
                 let state_transfer = state_transfer.clone().unwrap();
                 let (log_first, log_last, _) = log_transfer.as_ref().unwrap();
@@ -649,6 +655,7 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
                 } else {
                     info!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log",
 ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
+                    println!("Run ordering");
 
                     /// If the protocols are lined up so we can start running the ordering protocol
                     self.run_ordering_protocol()?;

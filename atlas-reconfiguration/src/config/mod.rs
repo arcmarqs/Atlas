@@ -1,5 +1,4 @@
-use atlas_common::{node_id::NodeId, crypto::signature::KeyPair, peer_addr::PeerAddr};
-use atlas_common::node_id::NodeType;
+use atlas_common::{node_id::{NodeId, NodeType}, crypto::signature::KeyPair, peer_addr::PeerAddr};
 
 use crate::message::NodeTriple;
 

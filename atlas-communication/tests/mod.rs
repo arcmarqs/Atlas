@@ -20,12 +20,9 @@ mod communication_test {
     use atlas_common::{async_runtime as rt, channel};
     use atlas_common::threadpool;
     use atlas_communication::config::{ClientPoolConfig, MioConfig, NodeConfig, PKConfig, TcpConfig, TlsConfig};
-    use atlas_communication::{Node, NodeConnections, NodeIncomingRqHandler};
     use atlas_communication::message::NetworkMessageKind;
     use atlas_communication::mio_tcp::MIOTcpNode;
     use atlas_communication::serialize::Serializable;
-    use atlas_communication::tcp_ip_simplex::TCPSimplexNode;
-    use atlas_communication::tcpip::{TcpNode};
 
     const FIRST_CLI: NodeId = NodeId(1000u32);
     const CLI_POOL_CFG: ClientPoolConfig = ClientPoolConfig {

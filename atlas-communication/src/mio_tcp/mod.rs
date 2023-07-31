@@ -18,7 +18,7 @@ use atlas_common::prng::ThreadSafePrng;
 use atlas_common::socket::SyncListener;
 use atlas_metrics::metrics::metric_duration;
 
-use crate::{FullNetworkNode};
+use crate::FullNetworkNode;
 use crate::client_pooling::{ConnectedPeer, PeerIncomingRqHandling};
 use crate::config::MioConfig;
 use crate::conn_utils::ConnCounts;

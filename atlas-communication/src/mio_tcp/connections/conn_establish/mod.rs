@@ -295,6 +295,7 @@ impl<NI, RM, PM> ServerWorker<NI, RM, PM>
             ConnectionResult::Connected(node_id, node_type, pending_messages) => {
                 debug!("{:?} // Incoming connection to {:?} is now established with type {:?}", self.my_id, node_id, node_type);
 
+                println!("connected");
                 // We have identified the peer and should now handle the connection
                 for (header, message) in pending_messages {
                     if header.payload_length() > 0 {

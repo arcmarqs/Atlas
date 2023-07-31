@@ -5,7 +5,6 @@ use atlas_common::error::*;
 use atlas_common::node_id::NodeId;
 use atlas_communication::FullNetworkNode;
 use atlas_communication::message::{SerializedMessage, StoredMessage, StoredSerializedProtocolMessage};
-use atlas_communication::protocol_node::ProtocolNetworkNode;
 use atlas_communication::reconfiguration_node::NetworkInformationProvider;
 use atlas_communication::serialize::Serializable;
 use atlas_execution::serialize::ApplicationData;
