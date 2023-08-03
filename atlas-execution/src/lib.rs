@@ -77,6 +77,7 @@ impl<D: ApplicationData> ExecutorHandle<D>
         &self,
         batch: UpdateBatch<D::Request>,
     ) -> Result<()> {
+        println!("QUEUE UPDATE AND GET APPSTATE");
         self.e_tx
             .send(ExecutionRequest::UpdateAndGetAppstate((batch, Instant::now())))
             .simple(ErrorKind::Executable)

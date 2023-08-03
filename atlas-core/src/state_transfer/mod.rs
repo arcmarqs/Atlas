@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use log::debug;
 #[cfg(feature = "serialize_serde")]
 use serde::{Deserialize, Serialize};
 
@@ -78,6 +79,7 @@ impl<S> Checkpoint<S> {
 }
 
 /// The result of processing a message in the state transfer protocol
+#[derive(Debug)]
 pub enum STResult {
     /// The message was processed successfully and
     /// we must run the state transfer protocol

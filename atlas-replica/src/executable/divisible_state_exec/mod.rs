@@ -6,6 +6,7 @@ use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx};
 use atlas_common::ordering::{Orderable, SeqNo};
 use atlas_communication::protocol_node::ProtocolNetworkNode;
 use atlas_core::serialize::{LogTransferMessage, OrderingProtocolMessage, ServiceMsg, StateTransferMessage};
+use atlas_core::smr::exec;
 use atlas_core::smr::exec::ReplyNode;
 use atlas_execution::app::{Application, BatchReplies, Reply, Request};
 use atlas_execution::{ExecutionRequest, ExecutorHandle};
@@ -83,10 +84,12 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
         std::thread::Builder::new()
             .name(format!("Executor thread"))
             .spawn(move || {
+
                 while let Ok(exec_req) = executor.work_rx.recv() {
                     match exec_req {
                         ExecutionRequest::PollStateChannel => {
                             // Receive all state updates that are available
+
                             while let Ok(state_recvd) = executor.state_rx.recv() {
                                 match state_recvd {
                                     InstallStateMessage::StatePart(state_part) => {
@@ -97,13 +100,13 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                             }
                         }
                         ExecutionRequest::CatchUp(requests) => {
+
                             for req in requests {
                                 executor.application.update(&mut executor.state, req);
                             }
                         }
                         ExecutionRequest::Update((batch, instant)) => {
                             let seq_no = batch.sequence_number();
-
                             metric_duration(EXECUTION_LATENCY_TIME_ID, instant.elapsed());
 
                             let start = Instant::now();
@@ -117,6 +120,7 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                             executor.execution_finished::<T>(Some(seq_no), reply_batch);
                         }
                         ExecutionRequest::UpdateAndGetAppstate((batch, instant)) => {
+
                             let seq_no = batch.sequence_number();
 
                             metric_duration(EXECUTION_LATENCY_TIME_ID, instant.elapsed());
@@ -135,6 +139,7 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                             executor.execution_finished::<T>(Some(seq_no), reply_batch);
                         }
                         ExecutionRequest::Read(_peer_id) => {
+
                             todo!()
                         }
                         ExecutionRequest::ExecuteUnordered(batch) => {

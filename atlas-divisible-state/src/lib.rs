@@ -105,7 +105,6 @@ impl StateTree {
     }
 
     pub fn full_serialized_tree(&self) -> Result<SerializedTree, ()> {
-        println!("seqno is: {:?}", self.seqno);
         if self.seqno == SeqNo::ONE {
            return Ok(SerializedTree::new(Digest::blank(),self.seqno,vec![]));
         }

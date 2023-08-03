@@ -232,7 +232,7 @@ impl<D, OP, NT, PL> LogTransferProtocol<D, OP, NT, PL> for CollabLogTransfer<D, 
         let view = order_protocol.view();
         let message = LTMessage::new(lg_seq, LogTransferMessageKind::RequestLogState);
 
-        info!("{:?} // Requesting latest consensus seq no with seq {:?}", self.node.id(), lg_seq);
+        debug!("{:?} // Requesting latest consensus seq no with seq {:?}", self.node.id(), lg_seq);
 
         self.timeouts.timeout_lt_request(self.default_timeout, view.quorum() as u32, message.sequence_number());
 
