@@ -14,6 +14,7 @@ atlas-communication = { path = "../atlas-communication" }
 atlas-execution = { path = "../atlas-execution" }
 atlas-metrics = {path = "../atlas-metrics" }
 serde = { version = "*", optional = false }
+blake3 = { version = "*", optional = false }
 
 
 [dependencies.sled]

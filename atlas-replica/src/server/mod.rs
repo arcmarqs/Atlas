@@ -433,7 +433,6 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                         self.executor_handle.queue_update(batch)?
                     }
                     ExecutionResult::BeginCheckpoint => {
-                        println!("Checkpointing");
                         self.executor_handle.queue_update_and_get_appstate(batch)?
                     }
                 }
@@ -668,7 +667,7 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
 // If both the state and the log start at 0, then we can just run the ordering protocol since
 // There is no state currently present.
                 if state_transfer.next() != *log_first && (state_transfer != SeqNo::ZERO && *log_first != SeqNo::ZERO) {
-                    debug!("{:?} // Log transfer protocol and state transfer protocol are not in sync. Received {:?} state and {:?} - {:?} log",
+                    println!("{:?} // Log transfer protocol and state transfer protocol are not in sync. Received {:?} state and {:?} - {:?} log",
 ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 
 // Run both the protocols again
@@ -676,7 +675,7 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 // The case of a hugely large state) so the state transfer protocol should take less time
                     self.run_all_state_transfer(state_transfer_protocol)?;
                 } else {
-                    debug!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log",
+                    println!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log",
 ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 
                     /// If the protocols are lined up so we can start running the ordering protocol

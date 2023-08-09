@@ -26,6 +26,7 @@ pub struct AppStateMessage<S> where S: DivisibleState {
 pub trait PartId: PartialEq + PartialOrd + Clone {
 
     fn content_description(&self) -> Digest;
+    fn seq_no(&self) -> &SeqNo;
 
 }
 
@@ -42,10 +43,13 @@ pub trait DivisibleStateDescriptor<S: DivisibleState + ?Sized>: Orderable + Part
 
 }
 
+
 /// A part of the state
 pub trait StatePart<S: DivisibleState + ?Sized> {
 
     fn descriptor(&self) -> &S::PartDescription;
+
+    fn hash(&self) -> Digest;
 
     fn id(&self) -> u64;
 
@@ -63,45 +67,39 @@ pub trait PartDescription {
 /// The trait that represents a divisible state, to be used by the state transfer protocol
 ///
 pub trait DivisibleState: Sized + Send + Sync + Clone {
-
     #[cfg(feature = "serialize_serde")]
-    type PartDescription: PartDescription + PartId + for<'a> Deserialize<'a> + Serialize + Send + Clone;
+    type PartDescription: PartDescription + PartId + for<'a> Deserialize<'a> + Serialize + Send + Clone + std::fmt::Debug;
 
     #[cfg(feature = "serialize_capnp")]
     type PartDescription: PartDescription + PartId + Send + Clone;
 
     #[cfg(feature = "serialize_serde")]
-    type StateDescriptor: DivisibleStateDescriptor<Self> + for<'a> Deserialize<'a> + Serialize + Send + Clone;
+    type StateDescriptor: DivisibleStateDescriptor<Self> + for<'a> Deserialize<'a> + Serialize + Send + Clone + std::fmt::Debug;
 
     #[cfg(feature = "serialize_capnp")]
     type StateDescriptor: DivisibleStateDescriptor<Self> + Send + Clone;
-
+    
     #[cfg(feature = "serialize_serde")]
     type StatePart: StatePart<Self> + for<'a> Deserialize<'a> + Serialize + Send + Clone;
 
     #[cfg(feature = "serialize_capnp")]
     type StatePart: StatePart<Self> + Send + Clone;
 
-    /// Get the description of the state at this moment
     fn get_descriptor(&self) -> Self::StateDescriptor;
 
     /// Accept a number of parts into our current state
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> Result<()>;
 
-    /// Prepare a checkpoint of the state
-    fn prepare_checkpoint(&mut self) -> Result<Self::StateDescriptor>;
-
     /// Get the parts corresponding to the provided part descriptions
-    fn get_parts(&self, parts: &Vec<Self::PartDescription>) -> Result<Vec<Self::StatePart>>;
+    fn get_parts(&mut self) -> Result<(Vec<Self::StatePart>,Self::StateDescriptor)>;
 
     fn get_seqno(&self) -> Result<SeqNo>;
-
 }
 
 impl<S> AppStateMessage<S> where S: DivisibleState {
 
     //Constructor
-    pub fn new(seq_no: SeqNo, state_descriptor: S::StateDescriptor, altered_parts: Vec<S::StatePart>) -> Self {
+    pub fn new(seq_no: SeqNo, altered_parts: Vec<S::StatePart>, state_descriptor:S::StateDescriptor) -> Self {
         AppStateMessage {
             seq_no,
             state_descriptor,
@@ -109,8 +107,8 @@ impl<S> AppStateMessage<S> where S: DivisibleState {
         }
     }
 
-    pub fn into_state(self) -> (S::StateDescriptor, Vec<S::StatePart>) {
-        (self.state_descriptor, self.altered_parts)
+    pub fn into_state(self) -> (Vec<S::StatePart>,S::StateDescriptor) {
+        (self.altered_parts,self.state_descriptor)
     }
 
 }

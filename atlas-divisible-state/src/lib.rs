@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::{RwLock, Arc};
 
 
@@ -5,32 +6,44 @@ use atlas_common::{crypto::hash::Digest, ordering::Orderable};
 use atlas_common::ordering::{self, SeqNo};
 use atlas_execution::state::divisible_state::{StatePart, DivisibleState, PartId, DivisibleStateDescriptor, PartDescription};
 use serde::{Serialize, Deserialize};
-use sled::{Serialize as sled_serialize};
-use state_orchestrator::{StateOrchestrator, StateDescriptor};
+use sled::{Serialize as sled_serialize, NodeEvent};
+use state_orchestrator::{StateOrchestrator, StateUpdates};
 use state_tree::{StateTree, Node, LeafNode};
-
+use blake3::Hasher;
 pub mod state_orchestrator;
 pub mod state_tree;
 
 #[derive(Clone,Serialize,Deserialize)]
 pub struct SerializedState {
-    pid: u64,
     bytes: Vec<u8>,
-    leaf: LeafNode
+    leaf: LeafNode,
 }
 
 impl SerializedState{
-    pub fn from_node(pid: u64,node: sled::Node, leaf: LeafNode) -> Self {
-        Self{
-            pid,
-            bytes: sled_serialize::serialize(&node),
-            leaf,
+    pub fn from_node(pid: u64,node: sled::Node, seq: SeqNo) -> Self {
+        let bytes = sled_serialize::serialize(&node);
+        let mut hasher = blake3::Hasher::new();
 
+        hasher.update(&pid.to_be_bytes());
+        hasher.update(bytes.as_slice());
+
+        Self{
+            bytes,
+            leaf: LeafNode::new(seq,pid,Digest::from_bytes(hasher.finalize().as_bytes()).unwrap()),
         }
     }
 
     pub fn to_node(&self) -> sled::Node {
         sled_serialize::deserialize(&mut self.bytes.as_slice()).unwrap()
+    }
+
+    pub fn hash(&self) -> Digest {
+        let mut hasher = blake3::Hasher::new();
+
+        hasher.update(&self.leaf.pid.to_be_bytes());
+        hasher.update(self.bytes.as_slice());
+
+        Digest::from_bytes(hasher.finalize().as_bytes()).unwrap()
     }
 
 }
@@ -41,7 +54,7 @@ impl StatePart<StateOrchestrator> for SerializedState {
     }
 
     fn id(&self) -> u64 {
-        self.pid
+        self.leaf.pid
     }
 
     fn length(&self) -> usize {
@@ -50,6 +63,10 @@ impl StatePart<StateOrchestrator> for SerializedState {
 
     fn bytes(&self) -> &[u8] {
         self.bytes.as_ref()
+    }
+
+    fn hash(&self) -> Digest {
+        self.hash()
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +77,12 @@ pub struct SerializedTree {
     leaves: Vec<LeafNode>,
 }
 
+impl Default for SerializedTree {
+    fn default() -> Self {
+        Self { root_digest: Digest::blank(), seqno: SeqNo::ZERO, leaves: Default::default() }
+    }
+}
+
 impl SerializedTree {
     pub fn new(digest: Digest, seqno: SeqNo, leaves: Vec<LeafNode>) -> Self {
         Self {
@@ -67,6 +90,10 @@ impl SerializedTree {
             seqno,
             leaves,
         }
+    }
+
+    pub fn from_state(state: StateTree) -> Result<Self, ()> {
+        state.full_serialized_tree()
     }
 }
 
@@ -103,9 +130,8 @@ impl StateTree {
         Ok(SerializedTree::new(digest,self.seqno,leaf_list))
 
     }
-
     pub fn full_serialized_tree(&self) -> Result<SerializedTree, ()> {
-        if self.seqno == SeqNo::ONE {
+        if self.seqno == SeqNo::ZERO {
            return Ok(SerializedTree::new(Digest::blank(),self.seqno,vec![]));
         }
 
@@ -163,6 +189,10 @@ impl PartId for LeafNode {
     fn content_description(&self) -> Digest {
         self.get_digest()
     }
+
+    fn seq_no(&self) -> &SeqNo {
+        &self.seqno
+    }
 }
 
 impl PartDescription for LeafNode {
@@ -173,51 +203,79 @@ impl PartDescription for LeafNode {
 
 impl DivisibleState for StateOrchestrator {
     type PartDescription = LeafNode;
-
     type StateDescriptor = SerializedTree;
-
     type StatePart = SerializedState;
 
     fn get_descriptor(&self) -> Self::StateDescriptor {
-        self.get_descriptor().unwrap()
+        match self.get_descriptor_inner() {
+            Ok(tree) => tree,
+            Err(_) => {
+                SerializedTree::default()},
+        }
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
         for part in parts {
-            if let Err(()) = self.import_page(part.pid, part.to_node()) {
+            
+            self.mk_tree.lock().expect("failed to lock while accepting parts").insert(part.leaf.seqno, part.leaf.pid,part.leaf.digest);
+             
+            if let Err(()) = self.import_page(part.leaf.pid, part.to_node()) {
                 panic!("Failed to import Page");
             }
         }
 
+        self.updates.clear();
+
+        let pids: Vec<u64> = self.mk_tree.lock().unwrap().full_serialized_tree().unwrap().leaves.iter().map(|leaf| leaf.pid).collect();
+        println!("page order: {:?}", pids);
         Ok(())
     }
 
-    fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<Self::StateDescriptor> {
+  /*   fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<Self::StateDescriptor> {
         // need to see how to handle snapshots of the state with sled'
         if let Ok(descriptor) = self.get_descriptor() {
             Ok(descriptor.clone())
         } else {
             Err(atlas_common::error::Error::simple(atlas_common::error::ErrorKind::Persistentdb))
         }
-    }
+    } */
 
     fn get_parts(
-        &self,
-        parts: &Vec<Self::PartDescription>,
-    ) -> atlas_common::error::Result<Vec<Self::StatePart>> {
+        &mut self,
+    ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let mut state_parts = Vec::new();
-        for leaf in parts {
-            if let Some(node) = self.get_page(leaf.pid) {
-                let serialized_part = SerializedState::from_node(leaf.pid, node,leaf.clone());
+        let parts_to_get: Vec<(u64,NodeEvent)> = {
+            let lock = self.updates.updates.read().unwrap();
+            lock.iter().map(|(k,v)| (*k,v.clone())).collect()
+        };
+
+        for (pid,_) in parts_to_get {
+           // let leaf_update = {
+          //      let r_lock = self.descriptor.updates.read().unwrap();
+          //      r_lock.contains_key(&leaf.pid)
+          //  };
+
+            if let Some(node) = self.get_page(pid) {              
+                let serialized_part = SerializedState::from_node(pid,node,self.updates.seqno);
+
+                {
+                    self.mk_tree.lock().expect("Couldn't aquire lock").insert_leaf(serialized_part.leaf.clone());
+                }
 
                 state_parts.push(serialized_part);
             }
         }
 
-        Ok(state_parts)
+        self.updates.clear();
+        self.updates.seqno.next();
+
+        let descriptor = self.get_descriptor();
+
+        Ok((state_parts,descriptor))
     }
 
     fn get_seqno(&self) -> atlas_common::error::Result<SeqNo> {
-        Ok(self.descriptor.get_seqno())
+        Ok(self.updates.seqno)
     }
+
 }

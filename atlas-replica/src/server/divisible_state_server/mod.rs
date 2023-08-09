@@ -108,11 +108,11 @@ impl<RP, S, A, OP, ST, LT, NT, PL> DivStReplica<RP, S, A, OP, ST, LT, NT, PL> wh
         while let Ok(checkpoint) = self.checkpoint_rx.try_recv() {
             let seq_no = checkpoint.sequence_number();
 
-            let (descriptor, state_parts) = checkpoint.into_state();
+            let (state_parts,state_descriptor) = checkpoint.into_state();
 
             let current_view = self.inner_replica.ordering_protocol.view();
 
-            self.state_transfer_protocol.handle_state_received_from_app(current_view, descriptor, state_parts)?;
+            self.state_transfer_protocol.handle_state_received_from_app(current_view, state_descriptor,state_parts)?;
 
             self.inner_replica.ordering_protocol.checkpointed(seq_no)?;
         }

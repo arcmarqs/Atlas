@@ -11,7 +11,7 @@ use std::{
 // and the [Grin project](https://github.com/mimblewimble/grin/blob/master/doc/mmr.md).
 // Might implement a caching strategy to store the least changed nodes in the merkle tree.
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct StateTree {
     // Sequence number of the latest update in the tree.
     pub seqno: SeqNo,
@@ -33,6 +33,38 @@ impl StateTree {
             seqno: SeqNo::ONE,
             peaks: BTreeMap::new(),
             leaves: BTreeMap::new(),
+        }
+    }
+
+    pub fn insert_leaf(&mut self, leaf: LeafNode) {
+        let leaf_pid = leaf.get_pid();
+        let new_leaf = Arc::new(RwLock::new(Node::Leaf(leaf)));
+        if let Some(_) = self.leaves.insert(leaf_pid, new_leaf.clone()) {
+            for peak in self.peaks.values().rev().cloned() {
+                let contains_pid = peak.read().unwrap().contains_pid(leaf_pid);
+                match contains_pid {
+                    true => {
+                        let mut node = peak.write().unwrap();
+                        node.update_node(leaf_pid, new_leaf.clone());
+                        return;
+                    }
+
+                    false => continue,
+                }
+            }
+        }
+
+        if let Some(same_level) = self.peaks.insert(0, new_leaf.clone()) {
+            let new_peak;
+
+            if same_level.read().unwrap().get_left_pids().first().unwrap() < &leaf_pid{
+                new_peak = InternalNode::new(same_level, new_leaf.clone());
+            } else {
+                new_peak = InternalNode::new(new_leaf.clone(), same_level);
+            }
+
+            self.peaks.remove(&0);
+            self.insert_internal(new_peak);
         }
     }
 
@@ -367,7 +399,7 @@ impl PartialOrd for InternalNode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode {
-    seqno: SeqNo,
+    pub seqno: SeqNo,
     pub pid: u64,
     pub digest: Digest,
     removed: bool,

@@ -33,7 +33,7 @@ pub struct DivisibleStateExecutor<S, A, NT>
     reply_worker: ReplyHandle<A::AppData>,
     send_node: Arc<NT>,
 
-    last_checkpoint_descriptor: S::StateDescriptor,
+    //last_checkpoint_descriptor: S::StateDescriptor,
 }
 
 impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
@@ -64,7 +64,7 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
 
         let (checkpoint_tx, checkpoint_rx) = channel::new_bounded_sync(STATE_BUFFER);
 
-        let descriptor = state.get_descriptor().clone();
+       // let descriptor = state.get_descriptor();
 
         let mut executor = DivisibleStateExecutor {
             application: service,
@@ -74,7 +74,7 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
             checkpoint_tx,
             reply_worker,
             send_node,
-            last_checkpoint_descriptor: descriptor,
+           // last_checkpoint_descriptor: descriptor,
         };
 
         for request in requests {
@@ -95,7 +95,10 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                                     InstallStateMessage::StatePart(state_part) => {
                                         executor.state.accept_parts(state_part).expect("Failed to install state parts into executor");
                                     }
-                                    InstallStateMessage::Done => break
+                                    InstallStateMessage::Done => {
+                                        println!("finish state transf");
+                                        break
+                                    }
                                 }
                             }
                         }
@@ -120,7 +123,7 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                             executor.execution_finished::<T>(Some(seq_no), reply_batch);
                         }
                         ExecutionRequest::UpdateAndGetAppstate((batch, instant)) => {
-
+                            
                             let seq_no = batch.sequence_number();
 
                             metric_duration(EXECUTION_LATENCY_TIME_ID, instant.elapsed());
@@ -134,6 +137,7 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
 
                             // deliver checkpoint state to the replica
                             executor.deliver_checkpoint_state(seq_no);
+                            println!("checkpoint");
 
                             // deliver replies
                             executor.execution_finished::<T>(Some(seq_no), reply_batch);
@@ -152,20 +156,21 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                 }
             })
             .expect("Failed to start executor thread");
-
+            println!("exiting executor thread");
         Ok((state_tx, checkpoint_rx))
     }
 
     ///Clones the current state and delivers it to the application
     /// Takes a sequence number, which corresponds to the last executed consensus instance before we performed the checkpoint
     fn deliver_checkpoint_state(&mut self, seq: SeqNo) {
-        let current_state = self.state.prepare_checkpoint().expect("Failed to prepare state checkpoint").clone();
+        println!("deliver checkpoint");
+       // let current_state = self.state.prepare_checkpoint().expect("Failed to prepare state checkpoint").clone();
 
-        let diff = self.last_checkpoint_descriptor.compare_descriptors(&current_state);
+       // let diff = self.last_checkpoint_descriptor.compare_descriptors(&current_state);
 
-        let parts = self.state.get_parts(&diff).expect("Failed to get necessary parts");
+        let (parts,desc) = self.state.get_parts().expect("Failed to get necessary parts");
 
-        self.checkpoint_tx.send(AppStateMessage::new(seq, current_state.clone(), parts)).expect("Failed to send checkpoint");
+        self.checkpoint_tx.send(AppStateMessage::new(seq, parts,desc)).expect("Failed to send checkpoint");
     }
 
     fn execution_finished<T>(&self, seq: Option<SeqNo>, batch: BatchReplies<Reply<A, S>>)

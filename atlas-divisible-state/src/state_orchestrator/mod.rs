@@ -1,56 +1,70 @@
-use std::{sync::{Arc, RwLock, Mutex, atomic::{Ordering, AtomicU32}}, collections::BTreeMap};
+use std::{sync::{Arc, RwLock, Mutex, atomic::{Ordering, AtomicU32}}, collections::BTreeMap, cell::RefCell};
 
 use atlas_common::{crypto::hash::{Context, Digest}, ordering::SeqNo, async_runtime::spawn};
 use serde::{Serialize,Deserialize};
-use sled::{NodeEvent, Db, Mode, Config, Subscriber, EventType};
+use sled::{ Db, Mode, Config, Subscriber, EventType, NodeEvent};
 use crate::{state_tree::{StateTree, LeafNode, Node}, SerializedTree};
 
-const UPDATE_SIZE: u32 = 500;
-
-#[derive(Debug, Default)]
-pub struct StateDescriptor {
-    update_counter: AtomicU32,
-    updates: Arc<RwLock<BTreeMap<u64,NodeEvent>>>,
-    tree: Arc<Mutex<StateTree>>,
+#[derive(Debug)]
+pub struct StateUpdates {
+    //update_counter: AtomicU32,
+    pub seqno: SeqNo,
+    pub updates: Arc<RwLock<BTreeMap<u64,NodeEvent>>>,
 }
-impl Clone for StateDescriptor {
+
+impl Clone for StateUpdates{
     fn clone(&self) -> Self {
-        Self { update_counter: AtomicU32::new(self.update_counter.load(Ordering::SeqCst)), updates: self.updates.clone(), tree: self.tree.clone() }
+        // Self { update_counter: AtomicU32::new(self.update_counter.load(Ordering::SeqCst)), updates: self.updates.clone(), tree: self.tree.clone() }
+
+        Self { updates: self.updates.clone(), seqno: self.seqno.clone()}
     }
 }
 
-impl StateDescriptor {
+impl Default for StateUpdates {
+    fn default() -> Self {
+        Self { seqno: SeqNo::ZERO, updates: Default::default() }
+    }
+}
+
+impl StateUpdates {
 
     pub fn new() -> Self {
      
        Self {
+            seqno: SeqNo::ONE,
             updates: Arc::new(RwLock::new(BTreeMap::default())),
-            tree: Arc::new(Mutex::new(StateTree::init())),
-            update_counter: AtomicU32::new(0),
+            //tree: Arc::new(Mutex::new(StateTree::init())),
+          //  update_counter: AtomicU32::new(0),
         }
     }
 
     fn insert(&self, key: u64, value: NodeEvent) {
         if let Ok(mut lock) = self.updates.write() {
             lock.insert(key, value);
-            self.update_counter.fetch_add(1, Ordering::SeqCst);
+            //self.update_counter.fetch_add(1, Ordering::SeqCst);
         }
 
-        if self.update_counter.load(Ordering::SeqCst) >= UPDATE_SIZE {
-            self.flush();
-        }
+      //  if self.update_counter.load(Ordering::SeqCst) >= UPDATE_SIZE {
+       //     self.flush();
+      //  }
     }
 
     fn merged(&self, key: u64) {
         if let Ok(mut lock) = self.updates.write() {
             lock.remove(&key);
-            self.update_counter.fetch_add(1, Ordering::SeqCst);
-            self.tree.lock().unwrap().set_removed(key);
+            //self.update_counter.fetch_add(1, Ordering::SeqCst);
+           // self.tree.lock().unwrap().set_removed(key);
         }
     }
 
+    pub fn clear(&self) {
+        let mut lock = self.updates.write().expect("Failed to lock updates");
+        lock.clear();
+    }
 
-    fn flush(&self) {
+
+   /* pub fn flush(&self) {
+        println!("flushing");
         let mut lock = self.updates.write().unwrap();
         let mut tree_lock = self.tree.lock().unwrap();
         let seqno = tree_lock.seqno;
@@ -61,15 +75,15 @@ impl StateDescriptor {
         self.update_counter.store(0, Ordering::SeqCst);
         tree_lock.seqno = tree_lock.seqno.next();
         lock.clear();
-    }
+    } */
 
-    pub fn get_leaf(&self, pid: u64) -> LeafNode {
+ /*  pub fn get_leaf(&self, pid: u64) -> LeafNode {
         self.tree.lock().unwrap().get_leaf(pid)
     }
 
     pub fn get_seqno(&self) -> SeqNo{
         self.tree.lock().unwrap().get_seqno()
-    }
+    } */
 }
 
 #[derive(Debug,Clone,Serialize,Deserialize)]
@@ -77,12 +91,16 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing,skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing,skip_deserializing)]
-    pub descriptor: Arc<StateDescriptor>,
+    pub updates: Arc<StateUpdates>,
+    #[serde(skip_serializing,skip_deserializing)]
+    pub mk_tree: Arc<Mutex<StateTree>>,
 
 }
 
 impl StateOrchestrator {
     pub fn new(path: &str) -> Self {
+
+
         let mode = Mode::HighThroughput;
         let conf = Config::new()
             .mode(mode)
@@ -92,11 +110,10 @@ impl StateOrchestrator {
 
         let db = conf.open().unwrap(); 
         
-        let descriptor = Arc::new(StateDescriptor::new());
-        
        Self {
             db: Arc::new(db),
-            descriptor,
+            updates: Arc::new(StateUpdates::new()),
+            mk_tree: Arc::new(Mutex::new(StateTree::default())),
         }
     }
 
@@ -153,14 +170,14 @@ impl StateOrchestrator {
         }
     }
 
-    pub fn print_mktree(&self) {
+   /*  pub fn print_mktree(&self) {
         let tree_lock = self.descriptor.tree.lock().unwrap();
         let root = tree_lock.bag_peaks();
 
         println!("root: {:?}", root);
         println!("leaves: {:?}", tree_lock.leaves);
         println!("total leaves: {:?}", tree_lock.leaves.len());
-    }
+    } */
 
     pub fn get_page(&self, pid: u64) -> Option<sled::Node> {
         self.db.export_node(pid)
@@ -174,16 +191,22 @@ impl StateOrchestrator {
         }
     }
 
-    pub fn get_descriptor(&self) -> Result<SerializedTree, ()> {
-        self.descriptor.tree.lock().unwrap().full_serialized_tree()
+    pub fn get_descriptor_inner(&self) -> Result<SerializedTree, ()> {
+        match self.mk_tree.lock(){
+            Ok(lock) => lock.full_serialized_tree(),
+            Err(_) => Err(()),
+        }
     }
 
     pub fn get_partial_descriptor(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()> {
-        self.descriptor.tree.lock().unwrap().to_serialized_tree(node)
-    }
+        match self.mk_tree.lock(){
+            Ok(lock) => lock.to_serialized_tree(node),
+            Err(_) => Err(()),
+        }
+    }  
 }
 
-pub async fn monitor_changes(state: Arc<StateDescriptor>, mut subscriber: Subscriber) {
+pub async fn monitor_changes(state: Arc<StateUpdates>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
             EventType::Split{ lhs, rhs} => {
