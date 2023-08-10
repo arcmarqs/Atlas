@@ -216,18 +216,16 @@ impl DivisibleState for StateOrchestrator {
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
         for part in parts {
-            
-            self.mk_tree.lock().expect("failed to lock while accepting parts").insert(part.leaf.seqno, part.leaf.pid,part.leaf.digest);
-             
+                         
             if let Err(()) = self.import_page(part.leaf.pid, part.to_node()) {
                 panic!("Failed to import Page");
             }
         }
 
-        self.updates.clear();
+        //self.updates.clear();
 
-        let pids: Vec<u64> = self.mk_tree.lock().unwrap().full_serialized_tree().unwrap().leaves.iter().map(|leaf| leaf.pid).collect();
-        println!("page order: {:?}", pids);
+        //let pids: Vec<u64> = self.mk_tree.lock().unwrap().full_serialized_tree().unwrap().leaves.iter().map(|leaf| leaf.pid).collect();
+        //println!("page order: {:?}", pids);
         Ok(())
     }
 

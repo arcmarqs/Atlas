@@ -103,7 +103,7 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                             }
                         }
                         ExecutionRequest::CatchUp(requests) => {
-
+                            println!("catch up requests {:?}", requests.len());
                             for req in requests {
                                 executor.application.update(&mut executor.state, req);
                             }

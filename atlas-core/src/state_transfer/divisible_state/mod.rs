@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use atlas_common::channel::ChannelSyncTx;
 use atlas_common::error::*;
+use atlas_common::ordering::SeqNo;
 use atlas_execution::state::divisible_state::{DivisibleState, InstallStateMessage};
 
 use crate::persistent_log::DivisibleStateLog;
@@ -24,6 +25,7 @@ pub trait DivisibleStateTransfer<S, NT, PL>: StateTransferProtocol<S, NT, PL>
     /// you should also notify the ordering protocol that the state has been received
     /// and processed, so he is now safe to delete the state (Maybe this should be handled by the replica?)
     fn handle_state_received_from_app<V>(&mut self, view: V,
+                                         seq_no: SeqNo,
                                          descriptor: S::StateDescriptor,
                                          state: Vec<S::StatePart>) -> Result<()>
         where V: NetworkView;

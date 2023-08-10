@@ -755,7 +755,7 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 /// Every `PERIOD` messages, the message log is cleared,
 /// and a new log checkpoint is initiated.
 /// TODO: Move this to an env variable as it can be highly dependent on the service implemented on top of it
-pub const CHECKPOINT_PERIOD: u32 = 5000;
+pub const CHECKPOINT_PERIOD: u32 = 10;
 
 impl<D> PartialEq for ReplicaPhase<D> where D: ApplicationData {
     fn eq(&self, other: &Self) -> bool {

@@ -107,8 +107,8 @@ impl<S> AppStateMessage<S> where S: DivisibleState {
         }
     }
 
-    pub fn into_state(self) -> (Vec<S::StatePart>,S::StateDescriptor) {
-        (self.altered_parts,self.state_descriptor)
+    pub fn into_state(self) -> (SeqNo,Vec<S::StatePart>,S::StateDescriptor) {
+        (self.seq_no,self.altered_parts,self.state_descriptor)
     }
 
 }
