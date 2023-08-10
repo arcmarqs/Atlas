@@ -112,7 +112,7 @@ impl StateTree {
         }
     }
 
-    pub fn set_removed(&self, pid: u64) {
+   /* pub fn set_removed(&self, pid: u64) {
         for peak in self.peaks.values().rev().cloned() {
             let contains_pid = peak.read().unwrap().contains_pid(pid);
             match contains_pid {
@@ -125,7 +125,7 @@ impl StateTree {
                 false => continue,
             }
         }
-    }
+    } */
 
     pub fn get_leaf(&self, pid: u64) -> LeafNode {
         self.leaves
@@ -244,7 +244,6 @@ impl Node {
                 let lock = node.read().unwrap();
                 let new_leaf = lock.get_leaf();
                 leaf.digest = new_leaf.digest;
-                leaf.removed = false;
                 leaf.digest
             }
             Node::Internal(internal) => {
@@ -266,7 +265,7 @@ impl Node {
         }
     }
 
-    pub fn set_removed(&mut self, pid: u64) {
+ /*   pub fn set_removed(&mut self, pid: u64) {
         match self {
             Node::Leaf(leaf) => leaf.set_removed(),
             Node::Internal(internal) => {
@@ -278,6 +277,7 @@ impl Node {
             }
         }
     }
+    */
 
     pub fn get_leaf(&self) -> &LeafNode {
         match self {
@@ -402,12 +402,11 @@ pub struct LeafNode {
     pub seqno: SeqNo,
     pub pid: u64,
     pub digest: Digest,
-    removed: bool,
 }
 
 impl PartialEq for LeafNode {
     fn eq(&self, other: &Self) -> bool {
-        self.digest == other.digest && self.removed == other.removed
+        self.digest == other.digest
     }
 }
 
@@ -417,15 +416,7 @@ impl PartialOrd for LeafNode {
             Some(core::cmp::Ordering::Equal) => {}
             ord => return ord,
         }
-        match self.pid.partial_cmp(&other.pid) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        match self.digest.partial_cmp(&other.digest) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        self.removed.partial_cmp(&other.removed)
+        self.pid.partial_cmp(&other.pid)
     }
 }
 
@@ -435,7 +426,6 @@ impl LeafNode {
             seqno,
             pid,
             digest,
-            removed: false,
         }
     }
 
@@ -449,9 +439,5 @@ impl LeafNode {
 
     pub fn update_hash(&mut self, new_digest: Digest) {
         self.digest = new_digest;
-    }
-
-    pub fn set_removed(&mut self) {
-        self.removed = true;
     }
 }
