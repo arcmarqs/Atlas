@@ -27,7 +27,7 @@ pub struct QuorumEnterRequest {
 /// When a node makes request to join a given network view, the participating nodes
 /// must respond with a QuorumNodeJoinResponse.
 /// TODO: Decide how many responses we need in order to consider it a valid join request
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
 pub struct QuorumNodeJoinApproval {
     quorum_seq: SeqNo,
@@ -137,7 +137,7 @@ pub enum NetworkReconfigMessage {
     NetworkJoinRequest(NodeTriple),
     NetworkJoinResponse(NetworkJoinResponseMessage),
     NetworkHelloRequest(NodeTriple, Vec<NetworkJoinCert>),
-    NetworkHelloReply(KnownNodesMessage)
+    NetworkHelloReply(KnownNodesMessage),
 }
 
 /// A certificate that a given node sent a quorum view
@@ -156,6 +156,9 @@ pub enum QuorumReconfigMessage {
     /// are required to consider the request successful and allow for this
     /// to be passed to the ordering protocol as a QuorumJoinCertificate
     QuorumEnterResponse(QuorumEnterResponse),
+    /// The "command" to instruct the reconfiguration protocol to instruct the ordering protocol
+    /// to add a new node to the quorum.
+    QuorumJoin(NodeId, QuorumJoinCertificate),
     /// A message to indicate that a node has entered the quorum
     QuorumUpdated(QuorumView),
     /// A request to leave the current quorum
@@ -287,8 +290,8 @@ impl Debug for QuorumReconfigMessage {
             QuorumReconfigMessage::QuorumUpdated(quorum_view) => write!(f, "QuorumUpdated()"),
             QuorumReconfigMessage::QuorumLeaveRequest(quorum_leave_request) => write!(f, "QuorumLeaveRequest()"),
             QuorumReconfigMessage::QuorumLeaveResponse(quorum_leave_response) => write!(f, "QuorumLeaveResponse()"),
+            QuorumReconfigMessage::QuorumJoin(node, _) => { write!(f, "Quorum Join message({:?})", node) }
         }
-
     }
 }
 

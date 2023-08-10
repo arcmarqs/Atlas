@@ -154,7 +154,14 @@ impl<NT> ReconfigurableNode<NT> where NT: Send + 'static {
                         QuorumProtocolResponse::Nil => {}
                     };
                 }
-                ReconfigurableNodeState::Stable => {}
+                ReconfigurableNodeState::Stable => {
+                    // We still want to iterate the quorum protocol in order to receive new updates from the ordering protocol
+                    match self.node_type.iterate(&mut self.seq_gen, &self.node, &self.network_node, &self.timeouts) {
+                        QuorumProtocolResponse::Done => {}
+                        QuorumProtocolResponse::Running => {}
+                        QuorumProtocolResponse::Nil => {}
+                    };
+                }
             }
 
             let optional_message = self.network_node.reconfiguration_message_handler().try_receive_reconfig_message(Some(Duration::from_millis(1000))).unwrap();
@@ -245,7 +252,7 @@ impl ReconfigurationProtocol for ReconfigurableNodeProtocol {
 
     async fn initialize_protocol<NT>(information: Arc<Self::InformationProvider>,
                                      node: Arc<NT>, timeouts: Timeouts,
-                                     node_type: ReconfigurableNodeTypes<QuorumJoinCert<Self::Serialization>>,
+                                     node_type: ReconfigurableNodeTypes,
                                      min_stable_node_count: usize)
                                      -> Result<Self> where NT: ReconfigurationNode<Self::Serialization> + 'static, Self: Sized {
         let general_info = GeneralNodeInfo::new(information.clone(), NetworkNodeState::Init);
