@@ -23,23 +23,30 @@ pub struct StateTree {
 
 impl Default for StateTree  {
     fn default() -> Self {
-        Self { seqno: SeqNo::ONE, peaks: Default::default(), leaves: Default::default() }
+        Self { seqno: SeqNo::ZERO, peaks: Default::default(), leaves: Default::default() }
     }
 }
 
 impl StateTree {
     pub fn init() -> Self {
         Self {
-            seqno: SeqNo::ONE,
+            seqno: SeqNo::ZERO,
             peaks: BTreeMap::new(),
             leaves: BTreeMap::new(),
         }
     }
 
     pub fn insert_leaf(&mut self, leaf: LeafNode) {
+        self.seqno = self.seqno.max(leaf.seqno);
         let leaf_pid = leaf.get_pid();
         let new_leaf = Arc::new(RwLock::new(Node::Leaf(leaf)));
-        if let Some(_) = self.leaves.insert(leaf_pid, new_leaf.clone()) {
+        if let Some(old) = self.leaves.insert(leaf_pid, new_leaf.clone()) {
+
+            if old.read().unwrap().get_hash() == new_leaf.read().unwrap().get_hash() {
+                //value already inserted, no need to continue
+                return;
+            }
+
             for peak in self.peaks.values().rev().cloned() {
                 let contains_pid = peak.read().unwrap().contains_pid(leaf_pid);
                 match contains_pid {
@@ -155,6 +162,13 @@ impl StateTree {
         bagged_peaks.pop()
     }
 
+    pub fn next_seqno(&mut self) -> SeqNo {
+        let ret = self.seqno;
+        self.seqno = self.seqno.next();
+
+        ret
+    }
+    
     pub fn get_seqno(&self) -> SeqNo {
         self.seqno
     }

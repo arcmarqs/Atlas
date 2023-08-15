@@ -96,14 +96,13 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                                         executor.state.accept_parts(state_part).expect("Failed to install state parts into executor");
                                     }
                                     InstallStateMessage::Done => {
-                                        println!("finish state transf");
+                                        info!("STATE TRANSFER FINISHED");
                                         break
                                     }
                                 }
                             }
                         }
                         ExecutionRequest::CatchUp(requests) => {
-                            println!("catch up requests {:?}", requests.len());
                             for req in requests {
                                 executor.application.update(&mut executor.state, req);
                             }
@@ -137,7 +136,6 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
 
                             // deliver checkpoint state to the replica
                             executor.deliver_checkpoint_state(seq_no);
-                            println!("checkpoint");
 
                             // deliver replies
                             executor.execution_finished::<T>(Some(seq_no), reply_batch);
@@ -156,14 +154,12 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                 }
             })
             .expect("Failed to start executor thread");
-            println!("exiting executor thread");
         Ok((state_tx, checkpoint_rx))
     }
 
     ///Clones the current state and delivers it to the application
     /// Takes a sequence number, which corresponds to the last executed consensus instance before we performed the checkpoint
     fn deliver_checkpoint_state(&mut self, seq: SeqNo) {
-        println!("deliver checkpoint");
        // let current_state = self.state.prepare_checkpoint().expect("Failed to prepare state checkpoint").clone();
 
        // let diff = self.last_checkpoint_descriptor.compare_descriptors(&current_state);

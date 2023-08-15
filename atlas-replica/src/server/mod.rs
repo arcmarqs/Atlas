@@ -428,7 +428,7 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                                     self.log_transfer_protocol_done(state_transfer, log.first_seq().unwrap_or(SeqNo::ZERO), log.sequence_number(), Vec::new())?;
                                 }
                                 LTResult::LTPFinished(first_seq, last_seq, requests_to_execute) => {
-                                    debug!("{:?} // State transfer finished. Installing state in executor and running ordering protocol", ProtocolNetworkNode::id(&*self.node));
+                                    debug!("{:?} // Log transfer finished. Installing state in executor and running ordering protocol {:?}", ProtocolNetworkNode::id(&*self.node), requests_to_execute.len());
                                     self.log_transfer_protocol_done(state_transfer, first_seq, last_seq, requests_to_execute)?;
                                 }
                             }
@@ -738,7 +738,10 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
         let log_transfer_protocol_done = match &mut self.replica_phase {
             ReplicaPhase::OrderingProtocol => false,
             ReplicaPhase::StateTransferProtocol { log_transfer, state_transfer } => {
-                *log_transfer = Some((first_seq, last_seq, requests_to_execute));
+
+                if log_transfer.is_none() {
+                    *log_transfer = Some((first_seq,last_seq,requests_to_execute));
+                }
 
                 if Self::is_log_transfer_done(log_transfer) & &Self::is_state_transfer_done(state_transfer) {
                     true
@@ -789,7 +792,7 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
 // If both the state and the log start at 0, then we can just run the ordering protocol since
 // There is no state currently present.
                 if state_transfer.next() != *log_first && (state_transfer != SeqNo::ZERO && *log_first != SeqNo::ZERO) {
-                    println!("{:?} // Log transfer protocol and state transfer protocol are not in sync. Received {:?} state and {:?} - {:?} log",
+                    debug!("{:?} // Log transfer protocol and state transfer protocol are not in sync. Received {:?} state and {:?} - {:?} log",
 ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 
 // Run both the protocols again
@@ -797,7 +800,7 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 // The case of a hugely large state) so the state transfer protocol should take less time
                     self.run_all_state_transfer(state_transfer_protocol)?;
                 } else {
-                    println!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log",
+                    debug!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log",
 ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 
                     /// If the protocols are lined up so we can start running the ordering protocol
@@ -877,7 +880,7 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 /// Every `PERIOD` messages, the message log is cleared,
 /// and a new log checkpoint is initiated.
 /// TODO: Move this to an env variable as it can be highly dependent on the service implemented on top of it
-pub const CHECKPOINT_PERIOD: u32 = 10;
+pub const CHECKPOINT_PERIOD: u32 = 100;
 
 impl<D> PartialEq for ReplicaPhase<D> where D: ApplicationData {
     fn eq(&self, other: &Self) -> bool {

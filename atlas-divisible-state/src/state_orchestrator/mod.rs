@@ -8,7 +8,6 @@ use crate::{state_tree::{StateTree, LeafNode, Node}, SerializedTree};
 #[derive(Debug)]
 pub struct StateUpdates {
     //update_counter: AtomicU32,
-    pub seqno: SeqNo,
     pub updates: Arc<RwLock<BTreeMap<u64,NodeEvent>>>,
 }
 
@@ -16,22 +15,20 @@ impl Clone for StateUpdates{
     fn clone(&self) -> Self {
         // Self { update_counter: AtomicU32::new(self.update_counter.load(Ordering::SeqCst)), updates: self.updates.clone(), tree: self.tree.clone() }
 
-        Self { updates: self.updates.clone(), seqno: self.seqno.clone()}
+        Self { updates: self.updates.clone()}
     }
 }
 
 impl Default for StateUpdates {
     fn default() -> Self {
-        Self { seqno: SeqNo::ZERO, updates: Default::default() }
+        Self {updates: Default::default() }
     }
 }
 
 impl StateUpdates {
 
     pub fn new() -> Self {
-     
        Self {
-            seqno: SeqNo::ONE,
             updates: Arc::new(RwLock::new(BTreeMap::default())),
             //tree: Arc::new(Mutex::new(StateTree::init())),
           //  update_counter: AtomicU32::new(0),
@@ -120,7 +117,7 @@ impl StateOrchestrator {
     pub fn get_subscriber(&self) -> Subscriber {
         self.db.watch_prefix(vec![])
     }
-  
+
     pub fn insert(&self,key: String, value: String) {
         self.db.insert(key,value);
     }
@@ -194,7 +191,8 @@ impl StateOrchestrator {
     pub fn get_descriptor_inner(&self) -> Result<SerializedTree, ()> {
         match self.mk_tree.lock(){
             Ok(lock) => lock.full_serialized_tree(),
-            Err(_) => Err(()),
+            Err(_) =>{
+             Err(())},
         }
     }
 
@@ -215,8 +213,7 @@ pub async fn monitor_changes(state: Arc<StateUpdates>, mut subscriber: Subscribe
             }
             EventType::Merge{lhs, rhs, parent} =>{
                 state.insert(lhs.pid, lhs);
-                state.merged(rhs.pid);
-
+                state.insert(rhs.pid,rhs);
                 if let Some(parent_ref) = parent {
                     state.insert(parent_ref.pid, parent_ref);
                 }

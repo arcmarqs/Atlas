@@ -405,6 +405,7 @@ impl<D, OP, NT, PL> LogTransferProtocol<D, OP, NT, PL> for CollabLogTransfer<D, 
             LogTransferState::FetchingLog(i, data, current_log) => {
                 match message.into_inner().into_kind() {
                     LogTransferMessageKind::ReplyLog(view, log) => {
+
                         //FIXME: Unwraping this first seq is not really the correct thing to do
                         // as the log of the other replica might be empty because he has just checkpointed.
                         // However, the ordering protocol is already at a SeqNo != 0, so we can't just say it's 0.
@@ -420,9 +421,7 @@ impl<D, OP, NT, PL> LogTransferProtocol<D, OP, NT, PL> for CollabLogTransfer<D, 
                                         self.node.id(), log.sequence_number(), log.first_seq(), header.from(), view);
 
                                 let requests_to_execute = order_protocol.install_state(view, log)?;
-
                                 self.log_transfer_state = LogTransferState::Init;
-
                                 return Ok(LTResult::LTPFinished(first_log_seq, last_log_seq, requests_to_execute));
                             } else {
                                 error!("{:?} // Received log with sequence number {:?} but expected {:?} or higher", self.node.id(), log.sequence_number(), last_log_seq);
@@ -452,7 +451,7 @@ impl<D, OP, NT, PL> LogTransferProtocol<D, OP, NT, PL> for CollabLogTransfer<D, 
                     Ok(LTResult::Running)
                 };
             }
-            LogTransferState::FetchingLogParts(_, _) => todo!()
+        LogTransferState::FetchingLogParts(_, _) => todo!()
         }
     }
 
