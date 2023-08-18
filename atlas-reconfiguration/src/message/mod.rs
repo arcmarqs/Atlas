@@ -24,42 +24,24 @@ pub struct QuorumEnterRequest {
     node_triple: NodeTriple,
 }
 
-/// When a node makes request to join a given network view, the participating nodes
-/// must respond with a QuorumNodeJoinResponse.
-/// TODO: Decide how many responses we need in order to consider it a valid join request
-#[derive(Clone, Debug)]
-#[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
-pub struct QuorumNodeJoinApproval {
-    quorum_seq: SeqNo,
-
-    requesting_node: NodeId,
-    origin_node: NodeId,
-}
-
-/// A certificate composed of enough QuorumNodeJoinResponses to consider that enough
-/// existing quorum nodes have accepted the new node
-#[derive(Clone)]
-#[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
-pub struct QuorumJoinCertificate {
-    network_view_seq: SeqNo,
-    approvals: Vec<StoredMessage<QuorumNodeJoinApproval>>,
-}
-
 /// Reason message for the rejection of quorum entering request
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
 pub enum QuorumEnterRejectionReason {
     NotAuthorized,
     MissingValues,
     IncorrectNetworkViewSeq,
     NodeIsNotQuorumParticipant,
+    FailedToObtainQuorum,
+    AlreadyPartOfQuorum,
+    CurrentlyReconfiguring,
 }
 
 /// A response to a network join request
 #[derive(Clone)]
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
 pub enum QuorumEnterResponse {
-    Successful(QuorumNodeJoinApproval),
+    Successful(QuorumView),
 
     Rejected(QuorumEnterRejectionReason),
 }
@@ -143,6 +125,15 @@ pub enum NetworkReconfigMessage {
 /// A certificate that a given node sent a quorum view
 pub type QuorumViewCert = StoredMessage<QuorumView>;
 
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
+pub enum ReconfigQuorumMessage {
+    /// The first message step in the quorum reconfiguration protocol
+    JoinMessage(NodeId),
+
+    ConfirmJoin(NodeId),
+}
+
 #[derive(Clone)]
 #[cfg_attr(feature = "serialize_serde", derive(Serialize, Deserialize))]
 pub enum QuorumReconfigMessage {
@@ -152,15 +143,16 @@ pub enum QuorumReconfigMessage {
     NetworkViewState(QuorumView),
     /// A request to join the current quorum
     QuorumEnterRequest(QuorumEnterRequest),
-    /// The response to the request to join the quorum, 2f+1 responses
-    /// are required to consider the request successful and allow for this
-    /// to be passed to the ordering protocol as a QuorumJoinCertificate
+    /// The quorum reconfiguration message type, exchanged between quorum members
+    /// to reconfigure the quorum
+    QuorumReconfig(ReconfigQuorumMessage),
+    /// Responses to the requesting node.
+    /// These can be delivered either right upon reception (in case the node doesn't qualify
+    /// or we are currently reconfiguring)
     QuorumEnterResponse(QuorumEnterResponse),
-    /// The "command" to instruct the reconfiguration protocol to instruct the ordering protocol
-    /// to add a new node to the quorum.
-    QuorumJoin(NodeId, QuorumJoinCertificate),
-    /// A message to indicate that a node has entered the quorum
-    QuorumUpdated(QuorumView),
+    /// An update given to the quorum members, to update their quorum view when a new node joins
+    /// or leaves the quorum
+    QuorumUpdate(QuorumView),
     /// A request to leave the current quorum
     QuorumLeaveRequest(QuorumLeaveRequest),
     /// The response to the request to leave the quorum
@@ -170,12 +162,6 @@ pub enum QuorumReconfigMessage {
 /// Messages that will be sent via channel to the reconfiguration module
 pub enum ReconfigMessage {
     TimeoutReceived(Vec<RqTimeout>)
-}
-
-impl QuorumNodeJoinApproval {
-    pub fn new(network_view_seq: SeqNo, requesting_node: NodeId, origin_node: NodeId) -> Self {
-        Self { quorum_seq: network_view_seq, requesting_node, origin_node }
-    }
 }
 
 impl ReconfigurationMessage {
@@ -258,8 +244,23 @@ impl Serializable for ReconfData {
     //TODO: Implement capnproto messages
 }
 
+impl Orderable for ReconfigurationMessage {
+    fn sequence_number(&self) -> SeqNo {
+        self.seq
+    }
+}
+
+impl ReconfigurationMessage {
+    pub fn seq(&self) -> SeqNo {
+        self.seq
+    }
+    pub fn message_type(&self) -> &ReconfigurationMessageType {
+        &self.message_type
+    }
+}
+
 impl ReconfigurationProtocolMessage for ReconfData {
-    type QuorumJoinCertificate = QuorumJoinCertificate;
+    type QuorumJoinCertificate = ();
 }
 
 impl QuorumEnterRequest {
@@ -272,12 +273,6 @@ impl QuorumEnterRequest {
     }
 }
 
-impl QuorumJoinCertificate {
-    pub fn new(network_view_seq: SeqNo, approvals: Vec<StoredMessage<QuorumNodeJoinApproval>>) -> Self {
-        Self { network_view_seq, approvals }
-    }
-}
-
 impl Debug for QuorumReconfigMessage {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 
@@ -287,16 +282,14 @@ impl Debug for QuorumReconfigMessage {
             QuorumReconfigMessage::NetworkViewState(quorum_view) => write!(f, "NetworkViewState()"),
             QuorumReconfigMessage::QuorumEnterRequest(quorum_enter_request) => write!(f, "QuorumEnterRequest()"),
             QuorumReconfigMessage::QuorumEnterResponse(quorum_enter_response) => write!(f, "QuorumEnterResponse()"),
-            QuorumReconfigMessage::QuorumUpdated(quorum_view) => write!(f, "QuorumUpdated()"),
             QuorumReconfigMessage::QuorumLeaveRequest(quorum_leave_request) => write!(f, "QuorumLeaveRequest()"),
             QuorumReconfigMessage::QuorumLeaveResponse(quorum_leave_response) => write!(f, "QuorumLeaveResponse()"),
-            QuorumReconfigMessage::QuorumJoin(node, _) => { write!(f, "Quorum Join message({:?})", node) }
+            QuorumReconfigMessage::QuorumReconfig(reconf) => {
+                write!(f, "QuorumReconfig({:?})", reconf)
+            }
+            QuorumReconfigMessage::QuorumUpdate(view) => {
+                write!(f, "QuorumUpdate({:?})", view)
+            }
         }
-    }
-}
-
-impl Orderable for QuorumNodeJoinApproval {
-    fn sequence_number(&self) -> SeqNo {
-        self.quorum_seq
     }
 }

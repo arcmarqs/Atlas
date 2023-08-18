@@ -1,6 +1,6 @@
 //! Contains the server side core protocol logic of `febft`.
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Formatter, write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -22,12 +22,13 @@ use atlas_core::ordering_protocol::OrderProtocolExecResult;
 use atlas_core::ordering_protocol::OrderProtocolPoll;
 use atlas_core::ordering_protocol::reconfigurable_order_protocol::{ReconfigurableOrderProtocol, ReconfigurationAttemptResult};
 use atlas_core::ordering_protocol::stateful_order_protocol::StatefulOrderProtocol;
-use atlas_core::persistent_log::{OperationMode, PersistableOrderProtocol, PersistableStateTransferProtocol, StatefulOrderingProtocolLog};
-use atlas_core::reconfiguration_protocol::{QuorumAlterationResponse, QuorumReconfigurationMessage, QuorumReconfigurationResponse, QuorumUpdateMessage, ReconfigurableNodeTypes, ReconfigurationProtocol};
+use atlas_core::persistent_log::OperationMode;
+use atlas_core::persistent_log::PersistableOrderProtocol;
+use atlas_core::persistent_log::PersistableStateTransferProtocol;
+use atlas_core::reconfiguration_protocol::{AlterationFailReason, QuorumAlterationResponse, QuorumAttemptJoinResponse, QuorumReconfigurationMessage, QuorumReconfigurationResponse, ReconfigurableNodeTypes, ReconfigurationProtocol};
 use atlas_core::request_pre_processing::{initialize_request_pre_processor, PreProcessorMessage, RequestPreProcessor};
 use atlas_core::request_pre_processing::work_dividers::WDRoundRobin;
 use atlas_core::serialize::{OrderingProtocolMessage, OrderProtocolLog, ReconfigurationProtocolMessage, StateTransferMessage};
-use atlas_core::serialize::NetworkView;
 use atlas_core::smr::networking::SMRNetworkNode;
 use atlas_core::state_transfer::{StateTransferProtocol, STResult, STTimeoutResult};
 use atlas_core::timeouts::{RqTimeout, TimedOut, TimeoutKind, Timeouts};
@@ -40,7 +41,6 @@ use crate::config::ReplicaConfig;
 use crate::metric::{LOG_TRANSFER_PROCESS_TIME_ID, ORDERING_PROTOCOL_PROCESS_TIME_ID, REPLICA_INTERNAL_PROCESS_TIME_ID, REPLICA_ORDERED_RQS_PROCESSED_ID, REPLICA_TAKE_FROM_NETWORK_ID, STATE_TRANSFER_PROCESS_TIME_ID, TIMEOUT_PROCESS_TIME_ID};
 use crate::persistent_log::SMRPersistentLog;
 
-//pub mod observer;
 
 pub mod client_replier;
 pub mod follower_handling;
@@ -52,16 +52,16 @@ const REPLICA_MESSAGE_CHANNEL: usize = 1024;
 pub const REPLICA_WAIT_TIME: Duration = Duration::from_millis(1000);
 
 pub type StateTransferDone = Option<SeqNo>;
-pub type LogTransferDone<D: ApplicationData> = Option<(SeqNo, SeqNo, Vec<D::Request>)>;
+pub type LogTransferDone<R> = Option<(SeqNo, SeqNo, Vec<R>)>;
 
 #[derive(Clone)]
-pub(crate) enum ReplicaPhase<D> where D: ApplicationData {
+pub(crate) enum ReplicaPhase<R>  {
     // The replica is currently executing the ordering protocol
     OrderingProtocol,
     // The replica is currently executing the state transfer protocol
     StateTransferProtocol {
         state_transfer: StateTransferDone,
-        log_transfer: LogTransferDone<D>,
+        log_transfer: LogTransferDone<R>,
     },
 }
 
@@ -71,9 +71,10 @@ pub struct Replica<RP, S, D, OP, ST, LT, NT, PL> where D: ApplicationData + 'sta
                                                        ST: StateTransferProtocol<S, NT, PL> + PersistableStateTransferProtocol + 'static,
                                                        PL: SMRPersistentLog<D, OP::Serialization, OP::StateSerialization> + 'static,
                                                        RP: ReconfigurationProtocol + 'static {
-    replica_phase: ReplicaPhase<D>,
+    replica_phase: ReplicaPhase<D::Request>,
 
-    pending_quorum_alteration: Option<NodeId>,
+    quorum_reconfig_data: QuorumReconfig,
+
     // The ordering protocol, responsible for ordering requests
     ordering_protocol: OP,
     log_transfer_protocol: LT,
@@ -99,6 +100,11 @@ pub struct Replica<RP, S, D, OP, ST, LT, NT, PL> where D: ApplicationData + 'sta
     st: PhantomData<(S, ST)>,
 }
 
+/// This is used to keep track of the node that is currently
+/// attempting to join the server
+pub struct QuorumReconfig {
+    node_pending_join: Option<NodeId>,
+}
 
 impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
     where
@@ -142,7 +148,7 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
         let timeouts = Timeouts::new::<D>(log_node_id.clone(), Duration::from_millis(1),
                                           default_timeout, exec_tx.clone());
 
-        let replica_node_args = ReconfigurableNodeTypes::Replica(reconf_tx, reply_rx);
+        let replica_node_args = ReconfigurableNodeTypes::QuorumNode(reconf_tx, reply_rx);
 
         debug!("{:?} // Initializing reconfiguration protocol", log_node_id);
         let reconfig_protocol = RP::initialize_protocol(network_info, node.clone(), timeouts.clone(), replica_node_args, OP::get_n_for_f(1)).await?;
@@ -154,7 +160,7 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
 
             match message {
                 QuorumReconfigurationMessage::ReconfigurationProtocolStable(quorum) => {
-                    reconf_response_tx.send(QuorumReconfigurationResponse::QuorumAlterationResponse(QuorumAlterationResponse::Successful)).unwrap();
+                    reconf_response_tx.send(QuorumReconfigurationResponse::QuorumStableResponse(true)).unwrap();
 
                     break quorum;
                 }
@@ -207,7 +213,7 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
         let mut replica = Self {
 // We start with the state transfer protocol to make sure everything is up to date
             replica_phase: state_transfer,
-            pending_quorum_alteration: None,
+            quorum_reconfig_data: QuorumReconfig { node_pending_join: None },
             ordering_protocol,
             log_transfer_protocol,
             rq_pre_processor,
@@ -278,16 +284,12 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                                         OrderProtocolExecResult::Decided(decisions) => {
                                             self.execute_decisions(state_transfer, decisions)?;
                                         }
-                                        OrderProtocolExecResult::QuorumJoined(decision, node_id) => {
+                                        OrderProtocolExecResult::QuorumJoined(decision, node_id, current_quorum) => {
                                             if let Some(decision) = decision {
                                                 self.execute_decisions(state_transfer, decision)?;
                                             }
 
-                                            if node_id == self.id() {
-                                                self.reply_to_quorum_entrance_request(true)?;
-                                            } else {
-                                                self.send_quorum_update(node_id)?;
-                                            }
+                                            self.handle_quorum_joined(node_id, current_quorum, state_transfer)?;
                                         }
                                     }
                                 }
@@ -309,16 +311,12 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                                         OrderProtocolExecResult::Decided(decisions) => {
                                             self.execute_decisions(state_transfer, decisions)?;
                                         }
-                                        OrderProtocolExecResult::QuorumJoined(decision, node_id) => {
+                                        OrderProtocolExecResult::QuorumJoined(decision, node_id, current_quorum) => {
                                             if let Some(decision) = decision {
                                                 self.execute_decisions(state_transfer, decision)?;
                                             }
 
-                                            if node_id == self.id() {
-                                                self.reply_to_quorum_entrance_request(true)?;
-                                            } else {
-                                                self.send_quorum_update(node_id)?;
-                                            }
+                                            self.handle_quorum_joined(node_id, current_quorum, state_transfer)?;
                                         }
                                     }
                                 }
@@ -350,27 +348,29 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                             OrderProtocolExecResult::Decided(decided) => {
                                 self.execute_decisions(state_transfer, decided)?;
                             }
-                            OrderProtocolExecResult::QuorumJoined(decision, node_id) => {
+                            OrderProtocolExecResult::QuorumJoined(decision, node_id, current_quorum) => {
                                 if let Some(decision) = decision {
                                     self.execute_decisions(state_transfer, decision)?;
                                 }
 
-                                if node_id == self.id() {
-                                    self.reply_to_quorum_entrance_request(true)?;
-                                } else {
-                                    self.send_quorum_update(node_id)?;
-                                }
+                                self.handle_quorum_joined(node_id, current_quorum, state_transfer)?;
                             }
                         }
-
                         metric_duration(ORDERING_PROTOCOL_PROCESS_TIME_ID, start.elapsed());
                         metric_increment(REPLICA_ORDERED_RQS_PROCESSED_ID, Some(1));
                     }
                     OrderProtocolPoll::RunCst => {
-                        self.run_state_transfer_protocol(state_transfer)?;
+                        self.run_all_state_transfer(state_transfer)?;
                     }
                     OrderProtocolPoll::Decided(decisions) => {
-                        for decision in decisions {}
+                        self.execute_decisions(state_transfer, decisions)?;
+                    }
+                    OrderProtocolPoll::QuorumJoined(decision, node_id, current_quorum) => {
+                        if let Some(decision) = decision {
+                            self.execute_decisions(state_transfer, decision)?;
+                        }
+
+                        self.handle_quorum_joined(node_id, current_quorum, state_transfer)?;
                     }
                 }
             }
@@ -444,43 +444,6 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
         Ok(())
     }
 
-    /// Attempt to enqueue the node that is trying to join the quorum if we are currently
-    /// not in the conditions necessary to begin processing his quorum entrance
-    fn append_pending_join_node(&mut self, node: NodeId) -> bool {
-        match &self.pending_quorum_alteration {
-            None => {
-                self.pending_quorum_alteration = Some(node);
-
-                true
-            }
-            Some(node) => {
-                false
-            }
-        }
-    }
-
-    fn send_quorum_update(&self, node_id: NodeId) -> Result<()> {
-        let members = self.ordering_protocol.view().quorum_members().clone();
-
-        info!("{:?} // Sending quorum update with member {:?}, new view {:?}", ProtocolNetworkNode::id(&*self.node), node_id, members);
-
-        self.reconf_tx.send(QuorumReconfigurationResponse::QuorumUpdate(QuorumUpdateMessage::UpdatedQuorumView(members))).wrapped_msg(ErrorKind::CommunicationChannel, "Error sending quorum update to reconfiguration protocol")
-    }
-
-    /// Send the result of attempting to join the quorum to the reconfiguration protocol, so that
-    /// it can proceed with execution
-    fn reply_to_quorum_entrance_request(&mut self, successful: bool) -> Result<()> {
-        info!("{:?} // Sending quorum entrance response to reconfiguration protocol with success: {}", ProtocolNetworkNode::id(&*self.node), successful);
-
-        if successful {
-            self.reconf_tx.send(QuorumReconfigurationResponse::QuorumAlterationResponse(QuorumAlterationResponse::Successful)).wrapped_msg(ErrorKind::CommunicationChannel, "Error sending quorum entrance response to reconfiguration protocol")?;
-        } else {
-            self.reconf_tx.send(QuorumReconfigurationResponse::QuorumAlterationResponse(QuorumAlterationResponse::Failed())).wrapped_msg(ErrorKind::CommunicationChannel, "Error sending quorum entrance response to reconfiguration protocol")?;
-        }
-
-        Ok(())
-    }
-
     fn execute_decisions(&mut self, state_transfer: &mut ST, decisions: Vec<ProtocolConsensusDecision<D::Request>>) -> Result<()> {
         for decision in decisions {
             if let Some(decided) = decision.batch_info() {
@@ -532,53 +495,26 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
                 QuorumReconfigurationMessage::RequestQuorumJoin(node) => {
                     info!("Received request for quorum view alteration for {:?}, current phase: {:?}", node, self.replica_phase);
 
-                    match self.replica_phase {
-                        ReplicaPhase::OrderingProtocol => {
-                            let result = self.ordering_protocol.attempt_quorum_node_join(node)?;
-
-                            match result {
-                                ReconfigurationAttemptResult::InProgress => {}
-                                ReconfigurationAttemptResult::Failed => {
-                                    self.reply_to_quorum_entrance_request(false)?;
-                                }
-                                ReconfigurationAttemptResult::AlreadyPartOfQuorum | ReconfigurationAttemptResult::Successful => {
-                                    self.reply_to_quorum_entrance_request(true)?;
-                                }
-                            }
-                        }
-                        ReplicaPhase::StateTransferProtocol { .. } => {
-                            if !self.append_pending_join_node(node) {
-                                self.reply_to_quorum_entrance_request(false)?;
-                            }
-                        }
-                    }
+                    self.attempt_quorum_join(node)?;
                 }
                 QuorumReconfigurationMessage::AttemptToJoinQuorum => {
                     info!("Received request to attempt to join quorum, current phase: {:?}", self.replica_phase);
 
-                    match self.replica_phase {
-                        ReplicaPhase::OrderingProtocol => {
-                            match self.ordering_protocol.joining_quorum()? {
-                                ReconfigurationAttemptResult::InProgress => {}
-                                ReconfigurationAttemptResult::Failed => {
-                                    self.reply_to_quorum_entrance_request(false)?;
-                                }
-                                ReconfigurationAttemptResult::AlreadyPartOfQuorum | ReconfigurationAttemptResult::Successful => {
-                                    self.reply_to_quorum_entrance_request(true)?;
-                                }
-                            }
-                        }
-                        ReplicaPhase::StateTransferProtocol { .. } => {
+                    self.attempt_to_join_quorum()?;
+                }
+                QuorumReconfigurationMessage::QuorumUpdated(new_quorum) => {
+                    info!("Received quorum updated message, dealing with it");
 
-                            debug!("Received request to attempt to join quorum, but we are already in state transfer protocol?");
+                    // If we receive a quorum updated message, that means that we are not a part of the quorum,
+                    // and there is probably new information that we need to know about from the ordering protocol.
+                    //TODO: Here we want to check if we are currently attempting to join and if we are then take appropriate actions
+                    if new_quorum.contains(&self.id()) {
+                        unreachable!("We are a part of the quorum and we have received a quorum updated message? This information should come from the ordering protocol instead");
+                    } else {
+                        // We are not a part of the quorum, so we need to start the state transfer protocol
+                        // In order to receive any new information about the ordering protocol status (Like new views)
 
-                            if !self.append_pending_join_node(ProtocolNetworkNode::id(&*self.node)) {
-
-                                warn!("We are already trying to join the quorum?");
-
-                                self.reply_to_quorum_entrance_request(false)?;
-                            }
-                        }
+                        error!("TODO: Handle quorum updated")
                     }
                 }
                 QuorumReconfigurationMessage::ReconfigurationProtocolStable(_) => {
@@ -669,7 +605,7 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
 
         match self.ordering_protocol.handle_timeout(timed_out)? {
             OrderProtocolExecResult::RunCst => {
-                self.run_state_transfer_protocol(state_transfer)?;
+                self.run_all_state_transfer(state_transfer)?;
             }
             _ => {}
         };
@@ -697,34 +633,15 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
 
         self.ordering_protocol.handle_execution_changed(true)?;
 
-        match std::mem::replace(&mut self.pending_quorum_alteration, None) {
-            Some(node_id) => {
-                info!("Attempting to change pending quorum alteration on the ordering protocol");
-
-                if node_id == ProtocolNetworkNode::id(&*self.node) {
-                    match self.ordering_protocol.joining_quorum()? {
-                        ReconfigurationAttemptResult::Failed => {
-                            error!("Failed to change the network view on the ordering protocol?");
-                        }
-                        _ => {}
-                    }
-                } else {
-                    match self.ordering_protocol.attempt_quorum_node_join(node_id)? {
-                        ReconfigurationAttemptResult::Failed => {
-                            error!("Failed to change the network view on the ordering protocol?");
-                        }
-                        _ => {}
-                    };
-                }
-            }
-            _ => {}
+        if let Some(node) = self.quorum_reconfig_data.pop_pending_node_join() {
+            self.attempt_quorum_join(node)?;
         }
 
         Ok(())
     }
 
     /// Is the log transfer protocol finished?
-    fn is_log_transfer_done(log: &LogTransferDone<D>) -> bool {
+    fn is_log_transfer_done(log: &LogTransferDone<D::Request>) -> bool {
         return log.is_some();
     }
 
@@ -792,16 +709,14 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
 // If both the state and the log start at 0, then we can just run the ordering protocol since
 // There is no state currently present.
                 if state_transfer.next() != *log_first && (state_transfer != SeqNo::ZERO && *log_first != SeqNo::ZERO) {
-                    debug!("{:?} // Log transfer protocol and state transfer protocol are not in sync. Received {:?} state and {:?} - {:?} log",
-ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
+                    error!("{:?} // Log transfer protocol and state transfer protocol are not in sync. Received {:?} state and {:?} - {:?} log", self.id(), state_transfer, * log_first, * log_last);
 
 // Run both the protocols again
 // This might work better since we already have a more up-to-date state (in
 // The case of a hugely large state) so the state transfer protocol should take less time
                     self.run_all_state_transfer(state_transfer_protocol)?;
                 } else {
-                    debug!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log",
-ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
+                    info!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log", self.id(), state_transfer, * log_first, * log_last);
 
                     /// If the protocols are lined up so we can start running the ordering protocol
                     self.run_ordering_protocol()?;
@@ -814,7 +729,7 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 
     /// Run the state transfer and log transfer protocols
     fn run_all_state_transfer(&mut self, state_transfer: &mut ST) -> Result<()> {
-       debug!("{:?} // Running state and log transfer protocols.", ProtocolNetworkNode::id(&*self.node));
+        info!("{:?} // Running state and log transfer protocols. {:?}", ProtocolNetworkNode::id(&*self.node), self.replica_phase);
 
         match &mut self.replica_phase {
             ReplicaPhase::OrderingProtocol => {
@@ -826,8 +741,11 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
                 };
             }
             ReplicaPhase::StateTransferProtocol { state_transfer, log_transfer } => {
-                *state_transfer = None;
-                *log_transfer = None;
+
+                warn!("{:?} // Why would we want to run the protocols when we are already running them?", ProtocolNetworkNode::id(&*self.node));
+
+                return Ok(());
+
             }
         }
 
@@ -840,13 +758,15 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 
     /// Run the state transfer protocol on this replica
     fn run_state_transfer_protocol(&mut self, state_transfer_p: &mut ST) -> Result<()> {
-        info!("{:?} // Running log transfer protocol.", ProtocolNetworkNode::id(&*self.node));
+        info!("{:?} // Running state transfer protocol. {:?}", ProtocolNetworkNode::id(&*self.node), self.replica_phase);
 
         match &mut self.replica_phase {
             ReplicaPhase::OrderingProtocol => {
                 self.run_all_state_transfer(state_transfer_p)?;
             }
             ReplicaPhase::StateTransferProtocol { state_transfer, .. } => {
+                warn!("{:?} // Why would we want to run the state transfer protocol when we are already running it?", ProtocolNetworkNode::id(&*self.node));
+
                 *state_transfer = None;
 
                 state_transfer_p.request_latest_state(self.ordering_protocol.view())?;
@@ -858,13 +778,15 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 
     /// Runs the log transfer protocol on this replica
     fn run_log_transfer_protocol(&mut self, state_transfer: &mut ST) -> Result<()> {
-        info!("{:?} // Running log transfer protocol.", ProtocolNetworkNode::id(&*self.node));
+        info!("{:?} // Running log transfer protocol. {:?}", ProtocolNetworkNode::id(&*self.node), self.replica_phase);
 
         match &mut self.replica_phase {
             ReplicaPhase::OrderingProtocol => {
                 self.run_all_state_transfer(state_transfer)?;
             }
             ReplicaPhase::StateTransferProtocol { log_transfer, .. } => {
+                warn!("{:?} // Why would we want to run the log transfer protocol when we are already running it?", ProtocolNetworkNode::id(&*self.node));
+
                 *log_transfer = None;
 
                 self.log_transfer_protocol.request_latest_log(&mut self.ordering_protocol)?;
@@ -873,6 +795,125 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 
         Ok(())
     }
+
+    fn attempt_to_join_quorum(&mut self) -> Result<()> {
+        match self.ordering_protocol.joining_quorum()? {
+            ReconfigurationAttemptResult::Failed => {
+                self.reply_to_attempt_quorum_join(true)?;
+            }
+            ReconfigurationAttemptResult::CurrentlyReconfiguring(_) => {
+                self.reply_to_attempt_quorum_join(true)?;
+            }
+            ReconfigurationAttemptResult::InProgress => {}
+            ReconfigurationAttemptResult::Successful | ReconfigurationAttemptResult::AlreadyPartOfQuorum => {
+                // If we are already part of the quorum, then we can immediately reply to it
+                self.reply_to_attempt_quorum_join(false)?;
+            }
+        };
+
+        Ok(())
+    }
+
+    /// Attempt to join the quorum
+    fn attempt_quorum_join(&mut self, node: NodeId) -> Result<()> {
+        match self.replica_phase {
+            ReplicaPhase::OrderingProtocol => {
+                let quorum_node_join = self.ordering_protocol.attempt_quorum_node_join(node)?;
+
+                debug!("{:?} // Attempting to join quorum with result {:?}", self.id(), quorum_node_join);
+
+                match quorum_node_join {
+                    ReconfigurationAttemptResult::Failed => {
+                        self.reply_to_quorum_entrance_request(node, Some(AlterationFailReason::Failed))?;
+                    }
+                    ReconfigurationAttemptResult::AlreadyPartOfQuorum => {
+                        self.reply_to_quorum_entrance_request(node, Some(AlterationFailReason::AlreadyPartOfQuorum))?;
+                    }
+                    ReconfigurationAttemptResult::CurrentlyReconfiguring(_) => {
+                        self.reply_to_quorum_entrance_request(node, Some(AlterationFailReason::OngoingReconfiguration))?;
+                    }
+                    ReconfigurationAttemptResult::InProgress => {}
+                    ReconfigurationAttemptResult::Successful => {
+                        self.reply_to_quorum_entrance_request(node, None)?;
+                    }
+                };
+            }
+            ReplicaPhase::StateTransferProtocol { .. } => {
+                self.append_pending_join_node(node);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// We are pending a node join
+    fn append_pending_join_node(&mut self, node: NodeId) -> bool {
+        self.quorum_reconfig_data.append_pending_node_join(node)
+    }
+
+    fn handle_quorum_joined(&mut self, node: NodeId, members: Vec<NodeId>, state_transfer: &mut ST) -> Result<()> {
+
+        if node == self.id() {
+            info!("{:?} // We have joined the quorum, responding to the reconfiguration protocol", self.id());
+
+            self.reply_to_attempt_quorum_join(false)?;
+
+            return Ok(());
+        }
+
+        self.reply_to_quorum_entrance_request(node, None)?;
+
+        Ok(())
+    }
+
+    fn reply_to_attempt_quorum_join(&mut self, failed: bool) -> Result<()> {
+        info!("{:?} // Sending attempt quorum join response to reconfiguration protocol. Has failed: {:?}", self.id(), failed);
+
+        if failed {
+            self.reconf_tx.send(QuorumReconfigurationResponse::QuorumAttemptJoinResponse(QuorumAttemptJoinResponse::Failed))
+                .wrapped_msg(ErrorKind::CommunicationChannel, "Error sending quorum entrance response to reconfiguration protocol")?;
+        } else {
+            self.reconf_tx.send(QuorumReconfigurationResponse::QuorumAttemptJoinResponse(QuorumAttemptJoinResponse::Success))
+                .wrapped_msg(ErrorKind::CommunicationChannel, "Error sending quorum entrance response to reconfiguration protocol")?;
+        }
+
+        Ok(())
+    }
+
+    /// Send the result of attempting to join the quorum to the reconfiguration protocol, so that
+    /// it can proceed with execution
+    fn reply_to_quorum_entrance_request(&mut self, node_id: NodeId, failed_reason: Option<AlterationFailReason>) -> Result<()> {
+        info!("{:?} // Sending quorum entrance response to reconfiguration protocol with success: {:?}", self.id(), failed_reason);
+
+        match failed_reason {
+            None => {
+                self.reconf_tx.send(QuorumReconfigurationResponse::QuorumAlterationResponse(QuorumAlterationResponse::Successful(node_id)))
+                    .wrapped_msg(ErrorKind::CommunicationChannel, "Error sending quorum entrance response to reconfiguration protocol")?;
+            }
+            Some(fail_reason) => {
+                self.reconf_tx.send(QuorumReconfigurationResponse::QuorumAlterationResponse(QuorumAlterationResponse::Failed(node_id, fail_reason)))
+                    .wrapped_msg(ErrorKind::CommunicationChannel, "Error sending quorum entrance response to reconfiguration protocol")?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl QuorumReconfig {
+    /// Attempt to register the node
+    fn append_pending_node_join(&mut self, node: NodeId) -> bool {
+        if let None = self.node_pending_join {
+            self.node_pending_join = Some(node);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn pop_pending_node_join(&mut self) -> Option<NodeId> {
+        std::mem::replace(&mut self.node_pending_join, None)
+    }
 }
 
 /// Checkpoint period.
@@ -880,9 +921,9 @@ ProtocolNetworkNode::id(&*self.node), state_transfer, * log_first, * log_last);
 /// Every `PERIOD` messages, the message log is cleared,
 /// and a new log checkpoint is initiated.
 /// TODO: Move this to an env variable as it can be highly dependent on the service implemented on top of it
-pub const CHECKPOINT_PERIOD: u32 = 100;
+pub const CHECKPOINT_PERIOD: u32 = 1000;
 
-impl<D> PartialEq for ReplicaPhase<D> where D: ApplicationData {
+impl<R> PartialEq for ReplicaPhase<R> where {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (ReplicaPhase::OrderingProtocol, ReplicaPhase::OrderingProtocol) => true,
@@ -892,14 +933,22 @@ impl<D> PartialEq for ReplicaPhase<D> where D: ApplicationData {
     }
 }
 
-impl<D> Debug for ReplicaPhase<D> where D: ApplicationData {
+impl<R> Debug for ReplicaPhase<R> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             ReplicaPhase::OrderingProtocol => {
                 write!(f, "OrderingProtocol")
             }
             ReplicaPhase::StateTransferProtocol { log_transfer, state_transfer } => {
-                write!(f, "StateTransferProtocol {:?}", state_transfer)
+                write!(f, "StateTransferProtocol {:?}", state_transfer)?;
+
+                write!(f, ", Log transfer protocol")?;
+
+                if let Some((seq, seq_2, _)) = log_transfer {
+                    write!(f, " from {:?} to {:?}", seq, seq_2)
+                } else {
+                    write!(f, " None")
+                }
             }
         }
     }
