@@ -1,6 +1,6 @@
 use std::sync::{Arc, RwLock};
 
-use atlas_common::error::{Error, ResultWrappedExt};
+use atlas_common::error::ResultWrappedExt;
 use atlas_common::ordering::{self, SeqNo};
 use atlas_common::{crypto::hash::Digest, ordering::Orderable};
 use atlas_execution::state::divisible_state::{
@@ -99,7 +99,7 @@ impl SerializedTree {
         }
     }
 
-    pub fn from_state(mut state: StateTree) -> Result<Self, ()> {
+    pub fn from_state(state: StateTree) -> Result<Self, ()> {
         state.full_serialized_tree()
     }
 }

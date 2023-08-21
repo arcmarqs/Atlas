@@ -1,21 +1,15 @@
 use std::{
-    cell::RefCell,
     collections::BTreeMap,
     sync::{
-        atomic::{AtomicU32, Ordering},
         Arc, Mutex, RwLock,
     },
 };
 
 use crate::{
-    state_tree::{LeafNode, Node, StateTree},
+    state_tree::{Node, StateTree},
     SerializedTree,
 };
-use atlas_common::{
-    async_runtime::spawn,
-    crypto::hash::{Context, Digest},
-    ordering::SeqNo,
-};
+use atlas_common::crypto::hash::{Context, Digest};
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, EventType, Mode, NodeEvent, Subscriber};
 
