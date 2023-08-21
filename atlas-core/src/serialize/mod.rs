@@ -1,23 +1,20 @@
-use std::collections::BTreeMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::Deref;
 use std::sync::Arc;
+use log::info;
 
 #[cfg(feature = "serialize_serde")]
 use serde::{Deserialize, Serialize};
-use atlas_common::crypto::hash::Digest;
 
 use atlas_common::node_id::NodeId;
 use atlas_common::ordering::{Orderable, SeqNo};
-use atlas_communication::FullNetworkNode;
-use atlas_communication::message::{SerializedMessage, StoredSerializedProtocolMessage};
-use atlas_communication::protocol_node::ProtocolNetworkNode;
-use atlas_communication::reconfiguration_node::{NetworkInformationProvider, ReconfigurationNode};
-use atlas_communication::serialize::Serializable;
+use atlas_communication::message::{Header};
+use atlas_communication::message_signing::NetworkMessageSignatureVerifier;
+use atlas_communication::reconfiguration_node::NetworkInformationProvider;
+use atlas_communication::serialize::{Buf, Serializable};
 use atlas_execution::serialize::ApplicationData;
 
-use crate::messages::SystemMessage;
+use crate::messages::{RequestMessage, SystemMessage};
 
 #[cfg(feature = "serialize_capnp")]
 pub mod capnp;
@@ -45,9 +42,19 @@ pub trait OrderProtocolProof: Orderable {
     // At the moment I only need orderable, but I might need more in the future
 }
 
+/// A trait that indicates that a given message can be "recursively" verifiable
+/// so we can verify the messages contained within
+pub trait InternallyVerifiable<M> {
+    /// Internally verify
+    fn verify_internal_message<S, SV, NI>(network_info: &Arc<NI>, header: &Header, msg: &M) -> atlas_common::error::Result<bool>
+        where S: Serializable,
+              SV: NetworkMessageSignatureVerifier<S, NI>,
+              NI: NetworkInformationProvider;
+}
+
 /// We do not need a serde module since serde serialization is just done on the network level.
 /// The abstraction for ordering protocol messages.
-pub trait OrderingProtocolMessage: Send + Sync {
+pub trait OrderingProtocolMessage: Send + Sync + InternallyVerifiable<Self::ProtocolMessage> {
     #[cfg(feature = "serialize_capnp")]
     type ViewInfo: NetworkView + Send + Clone;
 
@@ -107,8 +114,9 @@ pub trait OrderingProtocolMessage: Send + Sync {
     fn deserialize_proof_capnp(reader: febft_capnp::cst_messages_capnp::proof::Reader) -> Result<Self::Proof>;
 }
 
-
-pub trait LogTransferMessage: Send + Sync {
+/// The abstraction for log transfer protocol messages.
+/// This allows us to have any log transfer protocol work with the same backbone
+pub trait LogTransferMessage: Send + Sync + InternallyVerifiable<Self::LogTransferMessage> {
     #[cfg(feature = "serialize_capnp")]
     type LogTransferMessage: Send + Clone;
 
@@ -124,7 +132,7 @@ pub trait LogTransferMessage: Send + Sync {
 
 /// The abstraction for state transfer protocol messages.
 /// This allows us to have any state transfer protocol work with the same backbone
-pub trait StateTransferMessage: Send + Sync {
+pub trait StateTransferMessage: Send + Sync + InternallyVerifiable<Self::StateTransferMessage> {
     #[cfg(feature = "serialize_capnp")]
     type StateTransferMessage: Send + Clone;
 
@@ -173,8 +181,63 @@ pub type ClientServiceMsg<D: ApplicationData> = ServiceMsg<D, NoProtocol, NoProt
 
 pub type ClientMessage<D: ApplicationData> = <ClientServiceMsg<D> as Serializable>::Message;
 
+pub trait VerificationWrapper<M, D> where D: ApplicationData {
+    // Wrap a given client request into a message
+    fn wrap_request(header: Header, request: RequestMessage<D::Request>) -> M;
+
+    fn wrap_reply(header: Header, reply: D::Reply) -> M;
+}
+
 impl<D: ApplicationData, P: OrderingProtocolMessage, S: StateTransferMessage, L: LogTransferMessage> Serializable for ServiceMsg<D, P, S, L> {
     type Message = SystemMessage<D, P::ProtocolMessage, S::StateTransferMessage, L::LogTransferMessage>;
+
+    fn verify_message_internal<SV, NI>(info_provider: &Arc<NI>, header: &Header, msg: &Self::Message, full_raw_msg: &Buf) -> atlas_common::error::Result<bool>
+        where NI: NetworkInformationProvider,
+              SV: NetworkMessageSignatureVerifier<Self, NI> {
+        match msg {
+            SystemMessage::ProtocolMessage(protocol) => {
+                P::verify_internal_message::<Self, SV, NI>(info_provider, header, protocol.payload())
+            }
+            SystemMessage::LogTransferMessage(log_transfer) => {
+                L::verify_internal_message::<Self, SV, NI>(info_provider, header, log_transfer.payload())
+            }
+            SystemMessage::StateTransferMessage(state_transfer) => {
+                S::verify_internal_message::<Self, SV, NI>(info_provider, header, state_transfer.payload())
+            }
+            SystemMessage::OrderedRequest(request) => {
+                Ok(true)
+            }
+            SystemMessage::OrderedReply(reply) => {
+                Ok(true)
+            }
+            SystemMessage::UnorderedReply(reply) => {
+                Ok(true)
+            }
+            SystemMessage::UnorderedRequest(request) => {
+                Ok(true)
+            }
+            SystemMessage::ForwardedProtocolMessage(fwd_protocol) => {
+                let header = fwd_protocol.header();
+                let message = fwd_protocol.message();
+
+                Ok(true)
+            }
+            SystemMessage::ForwardedRequestMessage(fwd_requests) => {
+                let mut result = true;
+
+                for stored_rq in fwd_requests.requests().iter() {
+                    let header = stored_rq.header();
+                    let message = stored_rq.message();
+
+                    let message = SystemMessage::OrderedRequest(message.clone());
+
+                    result &= Self::verify_message_internal::<SV, NI>(info_provider, header, &message, full_raw_msg)?;
+                }
+
+                Ok(result)
+            }
+        }
+    }
 
     #[cfg(feature = "serialize_capnp")]
     fn serialize_capnp(builder: febft_capnp::messages_capnp::system::Builder, msg: &Self::Message) -> Result<()> {
@@ -220,6 +283,13 @@ impl NetworkView for NoView {
 
     fn n(&self) -> usize {
         unimplemented!()
+    }
+}
+
+impl InternallyVerifiable<()> for NoProtocol {
+    fn verify_internal_message<S, SV, NI>(network_info: &Arc<NI>, header: &Header, msg: &()) -> atlas_common::error::Result<bool>
+        where S: Serializable, SV: NetworkMessageSignatureVerifier<S, NI>, NI: NetworkInformationProvider {
+        Ok(true)
     }
 }
 
