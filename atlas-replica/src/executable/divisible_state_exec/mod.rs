@@ -12,6 +12,7 @@ use atlas_execution::app::{Application, BatchReplies, Reply, Request};
 use atlas_execution::{ExecutionRequest, ExecutorHandle};
 use atlas_execution::state::divisible_state::{AppStateMessage, DivisibleState, DivisibleStateDescriptor, InstallStateMessage};
 use atlas_metrics::metrics::metric_duration;
+use log::info;
 use crate::executable::ExecutorReplier;
 use crate::metric::{EXECUTION_LATENCY_TIME_ID, EXECUTION_TIME_TAKEN_ID};
 use crate::server::client_replier::ReplyHandle;
