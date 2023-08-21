@@ -1,33 +1,39 @@
-use std::sync::{RwLock, Arc};
+use std::sync::{Arc, RwLock};
 
-
-use atlas_common::{crypto::hash::Digest, ordering::Orderable};
+use atlas_common::error::{Error, ResultWrappedExt};
 use atlas_common::ordering::{self, SeqNo};
-use atlas_execution::state::divisible_state::{StatePart, DivisibleState, PartId, DivisibleStateDescriptor, PartDescription};
-use serde::{Serialize, Deserialize};
-use sled::{Serialize as sled_serialize, NodeEvent,};
+use atlas_common::{crypto::hash::Digest, ordering::Orderable};
+use atlas_execution::state::divisible_state::{
+    DivisibleState, DivisibleStateDescriptor, PartDescription, PartId, StatePart,
+};
+use serde::{Deserialize, Serialize};
+use sled::{NodeEvent, Serialize as sled_serialize};
 use state_orchestrator::StateOrchestrator;
-use state_tree::{StateTree, Node, LeafNode};
+use state_tree::{LeafNode, Node, StateTree};
 pub mod state_orchestrator;
 pub mod state_tree;
 
-#[derive(Clone,Serialize,Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SerializedState {
     bytes: Vec<u8>,
     leaf: LeafNode,
 }
 
-impl SerializedState{
-    pub fn from_node(pid: u64,node: sled::Node, seq: SeqNo) -> Self {
+impl SerializedState {
+    pub fn from_node(pid: u64, node: sled::Node, seq: SeqNo) -> Self {
         let bytes = sled_serialize::serialize(&node);
         let mut hasher = blake3::Hasher::new();
 
         hasher.update(&pid.to_be_bytes());
         hasher.update(bytes.as_slice());
 
-        Self{
+        Self {
             bytes,
-            leaf: LeafNode::new(seq,pid,Digest::from_bytes(hasher.finalize().as_bytes()).unwrap()),
+            leaf: LeafNode::new(
+                seq,
+                pid,
+                Digest::from_bytes(hasher.finalize().as_bytes()).unwrap(),
+            ),
         }
     }
 
@@ -43,7 +49,6 @@ impl SerializedState{
 
         Digest::from_bytes(hasher.finalize().as_bytes()).unwrap()
     }
-
 }
 
 impl StatePart<StateOrchestrator> for SerializedState {
@@ -77,7 +82,11 @@ pub struct SerializedTree {
 
 impl Default for SerializedTree {
     fn default() -> Self {
-        Self { root_digest: Digest::blank(), seqno: SeqNo::ZERO, leaves: Default::default() }
+        Self {
+            root_digest: Digest::blank(),
+            seqno: SeqNo::ZERO,
+            leaves: Default::default(),
+        }
     }
 }
 
@@ -90,7 +99,7 @@ impl SerializedTree {
         }
     }
 
-    pub fn from_state(state: StateTree) -> Result<Self, ()> {
+    pub fn from_state(mut state: StateTree) -> Result<Self, ()> {
         state.full_serialized_tree()
     }
 }
@@ -112,25 +121,24 @@ impl Orderable for SerializedTree {
 }
 
 impl StateTree {
-    pub fn to_serialized_tree(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()>{
+    pub fn to_serialized_tree(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()> {
         let node_read = node.read().unwrap();
         let digest = node_read.get_hash();
-        let pids = node_read.get_pids_concat();
 
         let leaf_list = {
             let mut vec = Vec::new();
 
-            for pid in pids{
-                vec.push(self.get_leaf(pid));
+            for (_,node) in self.leaves.iter() {
+                vec.push(node.read().expect("failed to read").get_leaf().clone());
             }
             vec
         };
-        Ok(SerializedTree::new(digest,self.seqno,leaf_list))
-
+        Ok(SerializedTree::new(digest, self.seqno, leaf_list))
     }
+
     pub fn full_serialized_tree(&self) -> Result<SerializedTree, ()> {
         if self.seqno == SeqNo::ZERO {
-           return Ok(SerializedTree::new(Digest::blank(),self.seqno,vec![]));
+            return Ok(SerializedTree::new(Digest::blank(), self.seqno, vec![]));
         }
 
         let root = self.bag_peaks();
@@ -144,7 +152,7 @@ impl StateTree {
 
 impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
     fn parts(&self) -> &Vec<LeafNode> {
-       &self.leaves
+        &self.leaves
     }
 
     fn get_digest(&self) -> &Digest {
@@ -156,7 +164,7 @@ impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
         let mut diff_parts = Vec::new();
         if self.root_digest != other.root_digest {
             if self.seqno >= other.seqno {
-                for (index,leaf) in self.leaves.iter().enumerate() {
+                for (index, leaf) in self.leaves.iter().enumerate() {
                     if let Some(other_leaf) = other.leaves.get(index) {
                         if other_leaf.digest != leaf.digest {
                             diff_parts.push(leaf.clone());
@@ -166,7 +174,7 @@ impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
                     }
                 }
             } else {
-                for (index,other_leaf) in other.leaves.iter().enumerate() {
+                for (index, other_leaf) in other.leaves.iter().enumerate() {
                     if let Some(leaf) = self.leaves.get(index) {
                         if other_leaf.digest != leaf.digest {
                             diff_parts.push(other_leaf.clone());
@@ -176,7 +184,6 @@ impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
                     }
                 }
             }
-            
         }
 
         diff_parts
@@ -209,41 +216,29 @@ impl DivisibleState for StateOrchestrator {
             Ok(tree) => tree,
             Err(_) => {
                 println!("Cound't get tree");
-                SerializedTree::default()},
+                SerializedTree::default()
+            }
         }
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
-                
         for part in parts {
             let node = part.to_node();
 
-            if let Err(()) = self.import_page(part.leaf.pid,node) {
+            if let Err(()) = self.import_page(part.leaf.pid, node) {
                 panic!("Failed to import Page");
             }
 
-            self.mk_tree.lock().expect("Couldn't aquire lock").insert_leaf(part.leaf.clone());
-
+            self.mk_tree
+                .lock()
+                .expect("Couldn't aquire lock")
+                .insert_leaf(part.leaf.clone());
         }
-
-        
-        println!("Verifying integrity");
-            
-        self.db.verify_integrity().expect("Couln't guarantee integrity");
 
         self.updates.clear();
 
         Ok(())
     }
-
-  /*   fn prepare_checkpoint(&mut self) -> atlas_common::error::Result<Self::StateDescriptor> {
-        // need to see how to handle snapshots of the state with sled'
-        if let Ok(descriptor) = self.get_descriptor() {
-            Ok(descriptor.clone())
-        } else {
-            Err(atlas_common::error::Error::simple(atlas_common::error::ErrorKind::Persistentdb))
-        }
-    } */
 
     fn get_parts(
         &mut self,
@@ -258,19 +253,14 @@ impl DivisibleState for StateOrchestrator {
         };
 
         let mut state_parts = Vec::new();
-        let cur_seq = self.mk_tree
+        let cur_seq = self
+            .mk_tree
             .lock()
             .expect("Couldn't aquire lock")
             .next_seqno();
 
         for (pid, _) in parts_to_get {
-           // if let NodeContext::Split(k) = event.context {
-                // If the node was split we need to observe a value so we can finalize a potential partial split
-              //  self.db.view(k);
-          //  }
-
             if let Some(node) = self.get_page(pid) {
-                
                 let serialized_part = SerializedState::from_node(pid, node, cur_seq);
 
                 self.mk_tree
@@ -283,11 +273,20 @@ impl DivisibleState for StateOrchestrator {
         }
 
         self.updates.clear();
+        self.mk_tree.lock().expect("failed to lock").calculate_tree();
 
         Ok((state_parts, self.get_descriptor()))
     }
 
     fn get_seqno(&self) -> atlas_common::error::Result<SeqNo> {
         Ok(self.mk_tree.lock().expect("failed to get lock").get_seqno())
+    }
+
+    fn finalize_transfer(&self) -> atlas_common::error::Result<()> {
+        println!("Verifying integrity");
+
+        self.db
+            .verify_integrity()
+            .wrapped(atlas_common::error::ErrorKind::Error)
     }
 }

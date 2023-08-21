@@ -1,8 +1,9 @@
 use atlas_common::{crypto::hash::*, ordering::SeqNo};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::{
+    cmp::Ordering,
     collections::BTreeMap,
-    sync::{Arc, RwLock}, cmp::Ordering,
+    sync::{Arc, RwLock},
 };
 
 // This Merkle tree is based on merkle mountain ranges
@@ -11,8 +12,10 @@ use std::{
 // and the [Grin project](https://github.com/mimblewimble/grin/blob/master/doc/mmr.md).
 // Might implement a caching strategy to store the least changed nodes in the merkle tree.
 
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct StateTree {
+    // if any node of the tree was updated, we should recalculate the whole tree
+    updated: bool,
     // Sequence number of the latest update in the tree.
     pub seqno: SeqNo,
     // Stores the peaks by level, every time a new peak of the same level is inserted, a new internal node with level +1 is created.
@@ -21,15 +24,22 @@ pub struct StateTree {
     pub leaves: BTreeMap<u64, NodeRef>,
 }
 
-impl Default for StateTree  {
+impl Default for StateTree {
     fn default() -> Self {
-        Self { seqno: SeqNo::ZERO, peaks: Default::default(), leaves: Default::default() }
+        println!("Size of node: {:?}",  std::mem::size_of::<Node>());
+        Self {
+            updated: false,
+            seqno: SeqNo::ZERO,
+            peaks: Default::default(),
+            leaves: Default::default(),
+        }
     }
 }
 
 impl StateTree {
     pub fn init() -> Self {
         Self {
+            updated: false,
             seqno: SeqNo::ZERO,
             peaks: BTreeMap::new(),
             leaves: BTreeMap::new(),
@@ -41,7 +51,22 @@ impl StateTree {
         let leaf_pid = leaf.get_pid();
         let new_leaf = Arc::new(RwLock::new(Node::Leaf(leaf)));
         if let Some(old) = self.leaves.insert(leaf_pid, new_leaf.clone()) {
+            if old.read().unwrap().get_hash() == new_leaf.read().unwrap().get_hash() {
+                //value already inserted, no need to continue
+                return;
+            }
 
+            // we changed a node so we must recalculate the tree in the next checkpoint
+            self.updated = true;
+        }
+    }
+
+/*
+    pub fn insert_leaf(&mut self, leaf: LeafNode) {
+        self.seqno = self.seqno.max(leaf.seqno);
+        let leaf_pid = leaf.get_pid();
+        let new_leaf = Arc::new(RwLock::new(Node::Leaf(leaf)));
+        if let Some(old) = self.leaves.insert(leaf_pid, new_leaf.clone()) {
             if old.read().unwrap().get_hash() == new_leaf.read().unwrap().get_hash() {
                 //value already inserted, no need to continue
                 return;
@@ -64,7 +89,7 @@ impl StateTree {
         if let Some(same_level) = self.peaks.insert(0, new_leaf.clone()) {
             let new_peak;
 
-            if same_level.read().unwrap().get_left_pids().first().unwrap() < &leaf_pid{
+            if same_level.read().unwrap().get_left_pids().first().unwrap() < &leaf_pid {
                 new_peak = InternalNode::new(same_level, new_leaf.clone());
             } else {
                 new_peak = InternalNode::new(new_leaf.clone(), same_level);
@@ -75,7 +100,7 @@ impl StateTree {
         }
     }
 
-    pub fn insert(&mut self,seqno: SeqNo, pid: u64, digest: Digest) {
+    pub fn insert(&mut self, seqno: SeqNo, pid: u64, digest: Digest) {
         let new_leaf = Arc::new(RwLock::new(Node::leaf(seqno, pid, digest)));
         if let Some(_) = self.leaves.insert(pid, new_leaf.clone()) {
             for peak in self.peaks.values().rev().cloned() {
@@ -106,8 +131,10 @@ impl StateTree {
         }
     }
 
+    
+
     fn insert_internal(&mut self, node: InternalNode) {
-        let level = node.get_level();
+        let level: u32 = node.get_level();
 
         let node_ref = Arc::new(RwLock::new(Node::Internal(node.into())));
 
@@ -119,20 +146,7 @@ impl StateTree {
         }
     }
 
-   /* pub fn set_removed(&self, pid: u64) {
-        for peak in self.peaks.values().rev().cloned() {
-            let contains_pid = peak.read().unwrap().contains_pid(pid);
-            match contains_pid {
-                true => {
-                    let mut node = peak.write().unwrap();
-                    node.set_removed(pid);
-                    return;
-                }
-
-                false => continue,
-            }
-        }
-    } */
+    */
 
     pub fn get_leaf(&self, pid: u64) -> LeafNode {
         self.leaves
@@ -142,6 +156,21 @@ impl StateTree {
             .unwrap()
             .get_leaf()
             .clone()
+    }
+
+    pub fn calculate_tree(&mut self) {
+        for leaf in self.leaves.values() {
+            let mut node = leaf.clone();
+            let mut level = node.read().expect("Failed to read").get_level();
+
+            while let Some(same_level) = self.peaks.insert(level, node.clone()) {
+                let new_peak = InternalNode::new(same_level, node.clone());
+                node =  Arc::new(RwLock::new(Node::Internal(new_peak.into())));
+                level = node.read().expect("Failed to read").get_level();
+
+                self.peaks.remove(&level);
+            }   
+        }
     }
 
     // iterates over peaks and consolidates them into a single node
@@ -168,23 +197,13 @@ impl StateTree {
 
         ret
     }
-    
+
     pub fn get_seqno(&self) -> SeqNo {
         self.seqno
     }
 }
 
 pub type NodeRef = Arc<RwLock<Node>>;
-
-// How many children each node has, determines the width of the merkle tree
-
-// The main difference is that each leaf reflects more than one key value pair
-// The Leaf enum stores the list of the keys that are reflected in its hash,
-// the actual hash includes the values stored on that keys as well so Hash(Node) != Hash(Keys)
-
-// The Hasher is stored in the structure so that we can feed it incrementally.
-// still need to consider if its worth it to have, since it won't be used for leafs
-// is also pretty much useless for updating the tree since we have to reset it.
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum Node {
@@ -210,20 +229,6 @@ impl Node {
         }
     }
 
-    pub fn get_right_pids(&self) -> Vec<u64> {
-        match self {
-            Node::Leaf(leaf) => vec![leaf.pid],
-            Node::Internal(internal) => internal.get_right_pids().to_owned(),
-        }
-    }
-
-    pub fn get_left_pids(&self) -> Vec<u64> {
-        match self {
-            Node::Leaf(leaf) => vec![leaf.pid],
-            Node::Internal(internal) => internal.get_left_pids().to_owned(),
-        }
-    }
-
     pub fn get_hash(&self) -> Digest {
         match self {
             Node::Leaf(leaf) => leaf.get_digest(),
@@ -231,17 +236,7 @@ impl Node {
         }
     }
 
-    pub fn get_pids_concat(&self) -> Vec<u64> {
-        match self {
-            Node::Leaf(leaf) => vec![leaf.pid],
-            Node::Internal(internal) => vec![
-                internal.get_left_pids().to_owned(),
-                internal.get_right_pids().to_owned(),
-            ]
-            .concat(),
-        }
-    }
-
+    /* 
     // verifies if a node contains a Pid, returns true if it contains the the pid and true if its a leaf
     pub fn contains_pid(&self, pid: u64) -> bool {
         match self {
@@ -252,6 +247,7 @@ impl Node {
         }
     }
 
+    
     pub fn update_node(&mut self, pid: u64, node: NodeRef) -> Digest {
         match self {
             Node::Leaf(leaf) => {
@@ -278,21 +274,7 @@ impl Node {
             }
         }
     }
-
- /*   pub fn set_removed(&mut self, pid: u64) {
-        match self {
-            Node::Leaf(leaf) => leaf.set_removed(),
-            Node::Internal(internal) => {
-                if internal.left_pids.contains(&pid) {
-                    internal.left.write().unwrap().set_removed(pid);
-                } else if internal.right_pids.contains(&pid) {
-                    internal.right.write().unwrap().set_removed(pid);
-                }
-            }
-        }
-    }
-    */
-
+*/
     pub fn get_leaf(&self) -> &LeafNode {
         match self {
             Node::Leaf(leaf) => leaf,
@@ -301,12 +283,9 @@ impl Node {
     }
 }
 
-#[derive(Debug,Serialize, Deserialize,Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct InternalNode {
-    level: u32,
-    // pids that are authenticated by the left and right child node, ordered left to right.
-    left_pids: Vec<u64>,
-    right_pids: Vec<u64>,
+    level: u32,  
     digest: Digest,
     left: NodeRef,
     right: NodeRef,
@@ -317,8 +296,6 @@ impl InternalNode {
         let left_borrow = left.read().unwrap();
         let right_borrow = right.read().unwrap();
         let level = left_borrow.get_level().max(right_borrow.get_level()) + 1;
-        let left_pids = left_borrow.get_pids_concat();
-        let right_pids = right_borrow.get_pids_concat();
         let mut hasher = Context::new();
 
         hasher.update(left_borrow.get_hash().as_ref());
@@ -329,8 +306,6 @@ impl InternalNode {
 
         Self {
             level,
-            left_pids,
-            right_pids,
             digest: hasher.finish(),
             left,
             right,
@@ -341,18 +316,10 @@ impl InternalNode {
         self.level
     }
 
-    pub fn get_left_pids(&self) -> &Vec<u64> {
-        &self.left_pids
-    }
-
-    pub fn get_right_pids(&self) -> &Vec<u64> {
-        &self.right_pids
-    }
-
     pub fn get_hash(&self) -> Digest {
         self.digest
     }
-
+/* 
     pub(crate) fn update_left(&mut self, left: NodeRef) {
         let right_hash = self.right.read().unwrap().get_hash();
         let (left_hash, left_pids) = {
@@ -381,6 +348,7 @@ impl InternalNode {
         self.right = right;
         self.right_pids = right_pids;
     }
+    */
 }
 
 impl PartialEq for InternalNode {
@@ -391,23 +359,11 @@ impl PartialEq for InternalNode {
 
 impl PartialOrd for InternalNode {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.level.partial_cmp(&other.level) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        match self.left_pids.partial_cmp(&other.left_pids) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        match self.right_pids.partial_cmp(&other.right_pids) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
+
         match self.digest.partial_cmp(&other.digest) {
             Some(core::cmp::Ordering::Equal) => Some(Ordering::Equal),
             ord => return ord,
         }
-      
     }
 }
 
@@ -436,11 +392,7 @@ impl PartialOrd for LeafNode {
 
 impl LeafNode {
     pub fn new(seqno: SeqNo, pid: u64, digest: Digest) -> Self {
-        Self {
-            seqno,
-            pid,
-            digest,
-        }
+        Self { seqno, pid, digest }
     }
 
     pub fn get_digest(&self) -> Digest {
