@@ -222,6 +222,7 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
+
         for part in parts {
             let node = part.to_node();
 

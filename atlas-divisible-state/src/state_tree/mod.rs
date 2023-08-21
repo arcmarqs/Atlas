@@ -159,6 +159,8 @@ impl StateTree {
     }
 
     pub fn calculate_tree(&mut self) {
+        self.peaks.clear();
+        
         for leaf in self.leaves.values() {
             let mut node = leaf.clone();
             let mut level = node.read().expect("Failed to read").get_level();
