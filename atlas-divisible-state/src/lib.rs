@@ -128,7 +128,7 @@ impl StateTree {
         let leaf_list = {
             let mut vec = Vec::new();
 
-            for (_,node) in self.leaves.iter() {
+            for (_, node) in self.leaves.iter() {
                 vec.push(node.read().expect("failed to read").get_leaf().clone());
             }
             vec
@@ -222,7 +222,6 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
-
         for part in parts {
             let node = part.to_node();
 
@@ -259,22 +258,27 @@ impl DivisibleState for StateOrchestrator {
             .lock()
             .expect("Couldn't aquire lock")
             .next_seqno();
+        
+        if !parts_to_get.is_empty() {
+            for (pid, _) in parts_to_get {
+                if let Some(node) = self.get_page(pid) {
+                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
 
-        for (pid, _) in parts_to_get {
-            if let Some(node) = self.get_page(pid) {
-                let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+                    self.mk_tree
+                        .lock()
+                        .expect("Couldn't aquire lock")
+                        .insert_leaf(serialized_part.leaf.clone());
 
-                self.mk_tree
-                    .lock()
-                    .expect("Couldn't aquire lock")
-                    .insert_leaf(serialized_part.leaf.clone());
-
-                state_parts.push(serialized_part);
+                    state_parts.push(serialized_part);
+                }
             }
-        }
 
-        self.updates.clear();
-        self.mk_tree.lock().expect("failed to lock").calculate_tree();
+            self.updates.clear();
+            self.mk_tree
+                .lock()
+                .expect("failed to lock")
+                .calculate_tree();
+        }
 
         Ok((state_parts, self.get_descriptor()))
     }
