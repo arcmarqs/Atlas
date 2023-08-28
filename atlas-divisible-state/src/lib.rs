@@ -1,4 +1,5 @@
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use atlas_common::error::ResultWrappedExt;
 use atlas_common::ordering::{self, SeqNo};
@@ -6,12 +7,17 @@ use atlas_common::{crypto::hash::Digest, ordering::Orderable};
 use atlas_execution::state::divisible_state::{
     DivisibleState, DivisibleStateDescriptor, PartDescription, PartId, StatePart,
 };
+use atlas_metrics::metrics::metric_duration;
 use serde::{Deserialize, Serialize};
 use sled::{NodeEvent, Serialize as sled_serialize};
 use state_orchestrator::StateOrchestrator;
 use state_tree::{LeafNode, Node, StateTree};
+use crate::metrics::CREATE_CHECKPOINT_TIME_ID;
+
 pub mod state_orchestrator;
 pub mod state_tree;
+
+pub mod metrics;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SerializedState {
@@ -234,15 +240,13 @@ impl DivisibleState for StateOrchestrator {
                 .expect("Couldn't aquire lock")
                 .insert_leaf(part.leaf.clone());
         }
-
-        self.updates.clear();
-
         Ok(())
     }
 
     fn get_parts(
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
+        let checkpoint_start = Instant::now();
         let parts_to_get: Vec<(u64, NodeEvent)> = if let Ok(lock) = self.updates.updates.read() {
             if lock.is_empty() {
                 return Ok((vec![], self.get_descriptor()));
@@ -258,7 +262,7 @@ impl DivisibleState for StateOrchestrator {
             .lock()
             .expect("Couldn't aquire lock")
             .next_seqno();
-        
+    
         if !parts_to_get.is_empty() {
             for (pid, _) in parts_to_get {
                 if let Some(node) = self.get_page(pid) {
@@ -274,12 +278,16 @@ impl DivisibleState for StateOrchestrator {
             }
 
             self.updates.clear();
+
             self.mk_tree
                 .lock()
                 .expect("failed to lock")
                 .calculate_tree();
         }
 
+        println!("checkpoint finished {:?}", checkpoint_start.elapsed());
+
+        metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
         Ok((state_parts, self.get_descriptor()))
     }
 
@@ -289,6 +297,8 @@ impl DivisibleState for StateOrchestrator {
 
     fn finalize_transfer(&self) -> atlas_common::error::Result<()> {
         println!("Verifying integrity");
+
+        self.updates.clear();
 
         self.db
             .verify_integrity()

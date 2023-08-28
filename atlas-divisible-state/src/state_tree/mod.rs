@@ -26,7 +26,6 @@ pub struct StateTree {
 
 impl Default for StateTree {
     fn default() -> Self {
-        println!("Size of node: {:?}",  std::mem::size_of::<Node>());
         Self {
             updated: false,
             seqno: SeqNo::ZERO,
@@ -53,6 +52,7 @@ impl StateTree {
         if let Some(old) = self.leaves.insert(leaf_pid, new_leaf.clone()) {
             if old.read().unwrap().get_hash() == new_leaf.read().unwrap().get_hash() {
                 //value already inserted, no need to continue
+                
                 return;
             }
 
