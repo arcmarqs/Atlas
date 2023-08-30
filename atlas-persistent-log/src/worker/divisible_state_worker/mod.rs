@@ -6,8 +6,8 @@ use atlas_common::error::*;
 use atlas_common::channel::{ChannelSyncRx, ChannelSyncTx, SendError, TryRecvError};
 use atlas_common::globals::ReadOnly;
 use atlas_common::persistentdb::KVDB;
+use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessage};
 use atlas_core::persistent_log::{PersistableOrderProtocol, PersistableStateTransferProtocol};
-use atlas_core::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessage};
 use atlas_execution::serialize::ApplicationData;
 use atlas_execution::state::divisible_state::{DivisibleState, StatePart};
 use crate::{DivisibleStateMessage, ResponseMessage};
@@ -78,9 +78,9 @@ impl<S> PersistentDivStateHandle<S> where S: DivisibleState {
 pub struct DivStatePersistentLogWorker<S, D, OPM, SOPM, POP, PSP>
     where S: DivisibleState + 'static,
           D: ApplicationData + 'static,
-          OPM: OrderingProtocolMessage + 'static,
-          SOPM: StatefulOrderProtocolMessage + 'static,
-          POP: PersistableOrderProtocol<OPM, SOPM> + 'static,
+          OPM: OrderingProtocolMessage<D> + 'static,
+          SOPM: StatefulOrderProtocolMessage<D, OPM> + 'static,
+          POP: PersistableOrderProtocol<D, OPM, SOPM> + 'static,
           PSP: PersistableStateTransferProtocol + 'static,
 {
     rx: ChannelSyncRx<DivisibleStateMessage<S>>,
@@ -91,9 +91,9 @@ pub struct DivStatePersistentLogWorker<S, D, OPM, SOPM, POP, PSP>
 impl<S, D, OPM, SOPM, POP, PSP> DivStatePersistentLogWorker<S, D, OPM, SOPM, POP, PSP>
     where S: DivisibleState + 'static,
           D: ApplicationData + 'static,
-          OPM: OrderingProtocolMessage + 'static,
-          SOPM: StatefulOrderProtocolMessage + 'static,
-          POP: PersistableOrderProtocol<OPM, SOPM> + 'static,
+          OPM: OrderingProtocolMessage<D> + 'static,
+          SOPM: StatefulOrderProtocolMessage<D, OPM> + 'static,
+          POP: PersistableOrderProtocol<D, OPM, SOPM> + 'static,
           PSP: PersistableStateTransferProtocol + 'static
 {
     pub fn new(request_rx: ChannelSyncRx<DivisibleStateMessage<S>>,

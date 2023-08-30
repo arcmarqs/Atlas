@@ -9,8 +9,8 @@ use atlas_common::crypto::hash::Digest;
 use atlas_common::globals::ReadOnly;
 use atlas_common::ordering::Orderable;
 use atlas_common::persistentdb::KVDB;
+use atlas_core::ordering_protocol::networking::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessage};
 use atlas_core::persistent_log::{PersistableOrderProtocol, PersistableStateTransferProtocol};
-use atlas_core::serialize::{OrderingProtocolMessage, StatefulOrderProtocolMessage};
 use atlas_core::state_transfer::Checkpoint;
 use atlas_execution::serialize::ApplicationData;
 use atlas_execution::state::monolithic_state::MonolithicState;
@@ -66,9 +66,9 @@ impl<S> PersistentMonolithicStateHandle<S> where S: MonolithicState {
 pub struct MonStatePersistentLogWorker<S, D, OPM, SOPM, POP, PSP>
     where S: MonolithicState + 'static,
           D: ApplicationData + 'static,
-          OPM: OrderingProtocolMessage + 'static,
-          SOPM: StatefulOrderProtocolMessage + 'static,
-          POP: PersistableOrderProtocol<OPM, SOPM> + 'static,
+          OPM: OrderingProtocolMessage<D> + 'static,
+          SOPM: StatefulOrderProtocolMessage<D, OPM> + 'static,
+          POP: PersistableOrderProtocol<D, OPM, SOPM> + 'static,
           PSP: PersistableStateTransferProtocol + 'static
 {
     request_rx: ChannelSyncRx<MonolithicStateMessage<S>>,
@@ -81,9 +81,9 @@ pub struct MonStatePersistentLogWorker<S, D, OPM, SOPM, POP, PSP>
 impl<S, D, OPM, SOPM, POP, PSP> MonStatePersistentLogWorker<S, D, OPM, SOPM, POP, PSP>
     where S: MonolithicState + 'static,
           D: ApplicationData + 'static,
-          OPM: OrderingProtocolMessage + 'static,
-          SOPM: StatefulOrderProtocolMessage + 'static,
-          POP: PersistableOrderProtocol<OPM, SOPM> + 'static,
+          OPM: OrderingProtocolMessage<D> + 'static,
+          SOPM: StatefulOrderProtocolMessage<D, OPM> + 'static,
+          POP: PersistableOrderProtocol<D, OPM, SOPM> + 'static,
           PSP: PersistableStateTransferProtocol + 'static
 {
     pub fn new(request_rx: ChannelSyncRx<MonolithicStateMessage<S>>,

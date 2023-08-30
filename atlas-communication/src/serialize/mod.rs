@@ -15,7 +15,7 @@ use atlas_common::error::*;
 use ::serde::{Deserialize, Serialize};
 
 use atlas_common::crypto::hash::{Context, Digest};
-use crate::message::{Header,  NetworkMessageKind};
+use crate::message::{Header, NetworkMessageKind};
 use crate::message_signing::NetworkMessageSignatureVerifier;
 use crate::reconfiguration_node::NetworkInformationProvider;
 
@@ -59,6 +59,12 @@ pub fn serialize_digest<W, RM, PM>(message: &NetworkMessageKind<RM, PM>, w: &mut
     Ok(ctx.finish())
 }
 
+pub fn digest_message(message: Buf) -> Result<Digest> {
+    let mut ctx = Context::new();
+    ctx.update(message.as_ref());
+    Ok(ctx.finish())
+}
+
 
 /// The trait that should be implemented for all systems which wish to use this communication method
 pub trait Serializable: Send + Sync {
@@ -70,9 +76,10 @@ pub trait Serializable: Send + Sync {
 
     /// Verify the signature of the internal message structure, to make sure all makes sense
     ///
-    fn verify_message_internal<SV, NI>(info_provider: &Arc<NI>, header: &Header, msg: &Self::Message, full_raw_msg: &Buf) -> Result<bool> where
-        NI: NetworkInformationProvider,
-        SV: NetworkMessageSignatureVerifier<Self, NI>, Self: Sized;
+    fn verify_message_internal<NI, SV>(info_provider: &Arc<NI>, header: &Header, msg: &Self::Message) -> Result<bool> where
+        NI: NetworkInformationProvider + 'static,
+        SV: NetworkMessageSignatureVerifier<Self, NI>,
+        Self: Sized;
 
     #[cfg(feature = "serialize_capnp")]
     fn serialize_capnp(builder: febft_capnp::messages_capnp::system::Builder, msg: &Self::Message) -> Result<()>;

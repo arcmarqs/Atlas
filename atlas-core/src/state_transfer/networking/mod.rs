@@ -1,3 +1,6 @@
+pub mod signature_ver;
+pub mod serialize;
+
 use std::collections::BTreeMap;
 
 use atlas_common::crypto::hash::Digest;
@@ -9,10 +12,13 @@ use atlas_communication::protocol_node::ProtocolNetworkNode;
 use atlas_communication::reconfiguration_node::NetworkInformationProvider;
 use atlas_communication::serialize::Serializable;
 use atlas_execution::serialize::ApplicationData;
+use crate::log_transfer::networking::serialize::LogTransferMessage;
 
 use crate::messages::SystemMessage;
-use crate::serialize::{LogTransferMessage, OrderingProtocolMessage, ServiceMsg, StateTransferMessage};
+use crate::ordering_protocol::networking::serialize::OrderingProtocolMessage;
+use crate::serialize::Service;
 use crate::smr::networking::NodeWrap;
+use crate::state_transfer::networking::serialize::StateTransferMessage;
 
 pub trait StateTransferSendNode<STM> where STM: StateTransferMessage {
     fn id(&self) -> NodeId;
@@ -54,12 +60,12 @@ pub trait StateTransferSendNode<STM> where STM: StateTransferMessage {
 
 impl<NT, D, P, S, L, NI, RM> StateTransferSendNode<S> for NodeWrap<NT, D, P, S, L, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage + 'static,
+          P: OrderingProtocolMessage<D> + 'static,
+          L: LogTransferMessage<D, P> + 'static,
           S: StateTransferMessage + 'static,
-          L: LogTransferMessage + 'static,
           RM: Serializable + 'static,
           NI: NetworkInformationProvider + 'static,
-          NT: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>>, {
+          NT: FullNetworkNode<NI, RM, Service<D, P, S, L>>, {
     #[inline(always)]
     fn id(&self) -> NodeId {
         self.0.id()

@@ -4,47 +4,50 @@ use std::ops::Deref;
 use std::sync::Arc;
 use atlas_common::crypto::hash::Digest;
 use atlas_common::node_id::NodeId;
-use atlas_communication::FullNetworkNode;
+use atlas_communication::{FullNetworkNode, NetworkNode};
 use atlas_communication::message::{SerializedMessage, StoredSerializedProtocolMessage};
 use atlas_communication::protocol_node::ProtocolNetworkNode;
 use atlas_communication::reconfiguration_node::{NetworkInformationProvider, ReconfigurationNode};
 use atlas_communication::serialize::Serializable;
 use atlas_execution::serialize::ApplicationData;
 use crate::log_transfer::networking::LogTransferSendNode;
+use crate::log_transfer::networking::serialize::LogTransferMessage;
 use crate::ordering_protocol::networking::OrderProtocolSendNode;
-use crate::serialize::{LogTransferMessage, OrderingProtocolMessage, ServiceMessage, ServiceMsg, StateTransferMessage};
+use crate::ordering_protocol::networking::serialize::OrderingProtocolMessage;
+use crate::serialize::{Service, ServiceMessage};
 use crate::smr::exec::ReplyNode;
+use crate::state_transfer::networking::serialize::StateTransferMessage;
 use crate::state_transfer::networking::StateTransferSendNode;
 
 ///TODO: I wound up creating a whole new layer of abstractions, but I'm not sure they are necessary. I did it
 /// To allow for the protocols to all use NT, as if I didn't, a lot of things would have to change in how the generic NT was
 /// going to be passed around the protocols. I'm not sure if this is the best way to do it, but it works for now.
-pub trait SMRNetworkNode<NI, RM, D, P, S, L>: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> + ReplyNode<D> + StateTransferSendNode<S> + OrderProtocolSendNode<D, P> + LogTransferSendNode<L>
+pub trait SMRNetworkNode<NI, RM, D, P, S, L>: FullNetworkNode<NI, RM, Service<D, P, S, L>> + ReplyNode<D> + StateTransferSendNode<S> + OrderProtocolSendNode<D, P> + LogTransferSendNode<D, P, L>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage + 'static,
+          P: OrderingProtocolMessage<D> + 'static,
+          L: LogTransferMessage<D, P> + 'static,
           S: StateTransferMessage + 'static,
-          L: LogTransferMessage + 'static,
           NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static {}
 
 #[derive(Clone)]
 pub struct NodeWrap<NT, D, P, S, L, NI, RM>(pub NT, PhantomData<(D, P, S, L, NI, RM)>)
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage + 'static,
+          P: OrderingProtocolMessage<D> + 'static,
+          L: LogTransferMessage<D, P> + 'static,
           S: StateTransferMessage + 'static,
-          L: LogTransferMessage + 'static,
           NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> + 'static,;
+          NT: FullNetworkNode<NI, RM, Service<D, P, S, L>> + 'static,;
 
 impl<NT, D, P, S, L, NI, RM> NodeWrap<NT, D, P, S, L, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage + 'static,
+          P: OrderingProtocolMessage<D> + 'static,
+          L: LogTransferMessage<D, P> + 'static,
           S: StateTransferMessage + 'static,
-          L: LogTransferMessage + 'static,
           NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> + 'static, {
+          NT: FullNetworkNode<NI, RM, Service<D, P, S, L>> + 'static, {
     pub fn from_node(node: NT) -> Self {
         NodeWrap(node, Default::default())
     }
@@ -52,12 +55,12 @@ impl<NT, D, P, S, L, NI, RM> NodeWrap<NT, D, P, S, L, NI, RM>
 
 impl<NT, D, P, S, L, NI, RM> Deref for NodeWrap<NT, D, P, S, L, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage + 'static,
+          P: OrderingProtocolMessage<D> + 'static,
+          L: LogTransferMessage<D, P> + 'static,
           S: StateTransferMessage + 'static,
-          L: LogTransferMessage + 'static,
           NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> + 'static, {
+          NT: FullNetworkNode<NI, RM, Service<D, P, S, L>> + 'static, {
     type Target = NT;
 
     fn deref(&self) -> &Self::Target {
@@ -65,30 +68,39 @@ impl<NT, D, P, S, L, NI, RM> Deref for NodeWrap<NT, D, P, S, L, NI, RM>
     }
 }
 
-impl<NT, D, P, S, L, NI, RM> ProtocolNetworkNode<ServiceMsg<D, P, S, L>> for NodeWrap<NT, D, P, S, L, NI, RM>
-    where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage + 'static,
-          S: StateTransferMessage + 'static,
-          L: LogTransferMessage + 'static,
-          NI: NetworkInformationProvider + 'static,
-          RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> + 'static, {
-    type ConnectionManager = <NT as ProtocolNetworkNode<ServiceMsg<D, P, S, L>>>::ConnectionManager;
-    type NetworkInfoProvider = <NT as ProtocolNetworkNode<ServiceMsg<D, P, S, L>>>::NetworkInfoProvider;
-    type IncomingRqHandler = NT::IncomingRqHandler;
-    type NetworkSignatureVerifier = NT::NetworkSignatureVerifier;
+impl<NT, D, P, S, L, NI, RM> NetworkNode for NodeWrap<NT, D, P, S, L, NI, RM>
+    where D: 'static + ApplicationData,
+          P: 'static + OrderingProtocolMessage<D>,
+          L: 'static + LogTransferMessage<D, P>,
+          NI: 'static + NetworkInformationProvider,
+          NT: 'static + FullNetworkNode<NI, RM, Service<D, P, S, L>>,
+          RM: 'static + Serializable, S: 'static + StateTransferMessage {
+    type ConnectionManager = NT::ConnectionManager;
+    type NetworkInfoProvider = NT::NetworkInfoProvider;
 
     fn id(&self) -> NodeId {
-        ProtocolNetworkNode::id(&self.0)
+        NT::id(&self.0)
     }
 
     fn node_connections(&self) -> &Arc<Self::ConnectionManager> {
-        ProtocolNetworkNode::node_connections(&self.0)
+        NT::node_connections(&self.0)
     }
 
     fn network_info_provider(&self) -> &Arc<Self::NetworkInfoProvider> {
-        ProtocolNetworkNode::network_info_provider(&self.0)
+        NT::network_info_provider(&self.0)
     }
+}
+
+impl<NT, D, P, S, L, NI, RM> ProtocolNetworkNode<Service<D, P, S, L>> for NodeWrap<NT, D, P, S, L, NI, RM>
+    where D: ApplicationData + 'static,
+          P: OrderingProtocolMessage<D> + 'static,
+          L: LogTransferMessage<D, P> + 'static,
+          S: StateTransferMessage + 'static,
+          NI: NetworkInformationProvider + 'static,
+          RM: Serializable + 'static,
+          NT: FullNetworkNode<NI, RM, Service<D, P, S, L>> + 'static, {
+    type IncomingRqHandler = NT::IncomingRqHandler;
+    type NetworkSignatureVerifier = NT::NetworkSignatureVerifier;
 
     fn node_incoming_rq_handling(&self) -> &Arc<Self::IncomingRqHandler> {
         ProtocolNetworkNode::node_incoming_rq_handling(&self.0)
@@ -122,24 +134,14 @@ impl<NT, D, P, S, L, NI, RM> ProtocolNetworkNode<ServiceMsg<D, P, S, L>> for Nod
 impl<NT, D, P, S, L, NI, RM> ReconfigurationNode<RM> for NodeWrap<NT, D, P, S, L, NI, RM>
     where NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> + 'static,
+          NT: FullNetworkNode<NI, RM, Service<D, P, S, L>> + 'static,
           D: ApplicationData + 'static,
-          P: OrderingProtocolMessage + 'static,
+          P: OrderingProtocolMessage<D> + 'static,
+          L: LogTransferMessage<D, P> + 'static,
           S: StateTransferMessage + 'static,
-          L: LogTransferMessage + 'static,
           RM: Serializable + 'static, {
-    type ConnectionManager = <NT as ReconfigurationNode<RM>>::ConnectionManager;
-    type NetworkInfoProvider = <NT as ReconfigurationNode<RM>>::NetworkInfoProvider;
     type IncomingReconfigRqHandler = NT::IncomingReconfigRqHandler;
     type ReconfigurationNetworkUpdate = NT::ReconfigurationNetworkUpdate;
-
-    fn node_connections(&self) -> &Arc<Self::ConnectionManager> {
-        ReconfigurationNode::node_connections(&self.0)
-    }
-
-    fn network_info_provider(&self) -> &Arc<Self::NetworkInfoProvider> {
-        ReconfigurationNode::network_info_provider(&self.0)
-    }
 
     fn reconfiguration_network_update(&self) -> &Arc<Self::ReconfigurationNetworkUpdate> {
         self.0.reconfiguration_network_update()
@@ -158,15 +160,15 @@ impl<NT, D, P, S, L, NI, RM> ReconfigurationNode<RM> for NodeWrap<NT, D, P, S, L
     }
 }
 
-impl<NT, D, P, S, L, NI, RM> FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> for NodeWrap<NT, D, P, S, L, NI, RM>
+impl<NT, D, P, S, L, NI, RM> FullNetworkNode<NI, RM, Service<D, P, S, L>> for NodeWrap<NT, D, P, S, L, NI, RM>
     where
         D: ApplicationData + 'static,
-        P: OrderingProtocolMessage + 'static,
+        P: OrderingProtocolMessage<D> + 'static,
+        L: LogTransferMessage<D, P> + 'static,
         S: StateTransferMessage + 'static,
-        L: LogTransferMessage + 'static,
         RM: Serializable + 'static,
         NI: NetworkInformationProvider + 'static,
-        NT: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>>, {
+        NT: FullNetworkNode<NI, RM, Service<D, P, S, L>>, {
     type Config = NT::Config;
 
     async fn bootstrap(network_info_provider: Arc<NI>, node_config: Self::Config) -> atlas_common::error::Result<Self> {
@@ -176,9 +178,9 @@ impl<NT, D, P, S, L, NI, RM> FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> for
 
 impl<NT, NI, RM, D, P, S, L> SMRNetworkNode<NI, RM, D, P, S, L> for NodeWrap<NT, D, P, S, L, NI, RM>
     where D: ApplicationData + 'static,
-          P: OrderingProtocolMessage + 'static,
+          P: OrderingProtocolMessage<D> + 'static,
+          L: LogTransferMessage<D, P> + 'static,
           S: StateTransferMessage + 'static,
-          L: LogTransferMessage + 'static,
           NI: NetworkInformationProvider + 'static,
           RM: Serializable + 'static,
-          NT: FullNetworkNode<NI, RM, ServiceMsg<D, P, S, L>> + 'static, {}
+          NT: FullNetworkNode<NI, RM, Service<D, P, S, L>> + 'static, {}

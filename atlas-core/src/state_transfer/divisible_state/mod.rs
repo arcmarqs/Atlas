@@ -4,9 +4,9 @@ use atlas_common::channel::ChannelSyncTx;
 use atlas_common::error::*;
 use atlas_common::ordering::SeqNo;
 use atlas_execution::state::divisible_state::{DivisibleState, InstallStateMessage};
+use crate::ordering_protocol::networking::serialize::NetworkView;
 
 use crate::persistent_log::DivisibleStateLog;
-use crate::serialize::{LogTransferMessage, NetworkView};
 use crate::state_transfer::StateTransferProtocol;
 use crate::timeouts::Timeouts;
 
