@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{
         Arc, Mutex, RwLock,
     },
@@ -9,71 +9,23 @@ use crate::{
     state_tree::{Node, StateTree},
     SerializedTree,
 };
-use atlas_common::crypto::hash::{Context, Digest};
+use atlas_common::{crypto::hash::{Context, Digest}, collections::HashSet};
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, EventType, Mode, NodeEvent, Subscriber};
-
-#[derive(Debug)]
-pub struct StateUpdates {
-    pub updates: Arc<RwLock<BTreeMap<u64, NodeEvent>>>,
-}
-
-impl Clone for StateUpdates {
-    fn clone(&self) -> Self {
-        Self {
-            updates: self.updates.clone(),
-        }
-    }
-}
-
-impl Default for StateUpdates {
-    fn default() -> Self {
-        Self {
-            updates: Default::default(),
-        }
-    }
-}
-
-impl StateUpdates {
-    pub fn new() -> Self {
-        Self {
-            updates: Arc::new(RwLock::new(BTreeMap::default())),
-        }
-    }
-
-    fn insert(&self, key: u64, value: NodeEvent) {
-        if let Ok(mut lock) = self.updates.write() {
-            lock.insert(key, value);
-        }
-    }
-
-    fn merged(&self, key: u64) {
-        if let Ok(mut lock) = self.updates.write() {
-            lock.remove(&key);
-        }
-    }
-
-    pub fn clear(&self) {
-        let mut lock = self.updates.write().expect("Failed to lock updates");
-        lock.clear();
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub updates: Arc<StateUpdates>,
+    pub updates: Arc<RwLock<HashSet<u64>>>,
     #[serde(skip_serializing, skip_deserializing)]
     pub mk_tree: Arc<Mutex<StateTree>>,
 }
 
 impl StateOrchestrator {
     pub fn new(path: &str) -> Self {
-        let mode = Mode::HighThroughput;
         let conf = Config::new()
-            .mode(mode)
             .compression_factor(10)
             .use_compression(true)
             .path(path);
@@ -82,7 +34,7 @@ impl StateOrchestrator {
 
         Self {
             db: Arc::new(db),
-            updates: Arc::new(StateUpdates::new()),
+            updates: Arc::new(RwLock::new(HashSet::default())),
             mk_tree: Arc::new(Mutex::new(StateTree::default())),
         }
     }
@@ -178,25 +130,27 @@ impl StateOrchestrator {
     }
 }
 
-pub async fn monitor_changes(state: Arc<StateUpdates>, mut subscriber: Subscriber) {
+pub async fn monitor_changes(state: Arc<RwLock<HashSet<u64>>>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
             EventType::Split { lhs, rhs } => {
-                state.insert(lhs.pid, lhs);
-                state.insert(rhs.pid, rhs);
+                let mut lock = state.write().expect("failed to acquire lock");
+                lock.insert(lhs.pid);
+                lock.insert(rhs.pid);
             }
             EventType::Merge { lhs, rhs, parent } => {
-                state.insert(lhs.pid, lhs);
-                state.insert(rhs.pid, rhs);
+                let mut lock = state.write().expect("failed to acquire lock");
+                lock.insert(lhs.pid);
+                lock.insert(rhs.pid);
                 if let Some(parent_ref) = parent {
-                    state.insert(parent_ref.pid, parent_ref);
+                    lock.insert(parent_ref.pid);
                 }
             }
-
-            EventType::Update(_) => {}
             EventType::Node(n) => {
-                state.insert(n.pid, n);
+                let mut lock = state.write().expect("failed to acquire lock");
+                lock.insert(n.pid);
             }
+            _ => {}
         }
     }
 }
