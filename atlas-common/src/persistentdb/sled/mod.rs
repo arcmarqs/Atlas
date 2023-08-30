@@ -12,7 +12,13 @@ impl SledKVDB {
     where
         T: AsRef<Path>,
     {
-        let conf = Config::default().path(db_location);
+        let conf = Config::default()
+        .path(db_location)
+        .mode(sled::Mode::LowSpace)
+        .compression_factor(20)
+        .use_compression(true)
+        .cache_capacity(2*1024*1024*1024);
+
         let db = conf.open().unwrap();
 
         for tree in prefixes {

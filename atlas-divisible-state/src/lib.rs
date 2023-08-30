@@ -240,7 +240,7 @@ impl DivisibleState for StateOrchestrator {
             lock.insert_leaf(part.leaf.clone());
         }
 
-        self.db.flush();
+        let _ = self.db.flush();
 
         Ok(())
     }
@@ -298,11 +298,13 @@ impl DivisibleState for StateOrchestrator {
 
     fn finalize_transfer(&self) -> atlas_common::error::Result<()> {
         println!("Verifying integrity");
+        let _ = self.db.flush();
 
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
         self.updates.write().expect("failed to acquire lock").clear();
-
+        self.mk_tree.lock().expect("failed to lock").calculate_tree();
+        
         self.db
             .verify_integrity()
             .wrapped(atlas_common::error::ErrorKind::Error)

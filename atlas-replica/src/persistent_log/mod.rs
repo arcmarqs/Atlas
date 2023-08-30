@@ -58,8 +58,8 @@ impl<S, D, OPM, SOPM, STM> SMRPersistentLog<D, OPM, SOPM> for DivisibleStatePers
 where
     S: DivisibleState + 'static,
     D: ApplicationData + 'static,
-    OPM: OrderingProtocolMessage + 'static,
-    SOPM: StatefulOrderProtocolMessage + 'static,
+    OPM: OrderingProtocolMessage<D> + 'static,
+    SOPM: StatefulOrderProtocolMessage<D,OPM> + 'static,
     STM: StateTransferMessage + 'static,
 {
     type Config = ();
@@ -68,7 +68,7 @@ where
     where
         K: AsRef<Path>,
         T: PersistentLogModeTrait,
-        POS: PersistableOrderProtocol<OPM, SOPM> + Send + 'static,
+        POS: PersistableOrderProtocol<D,OPM, SOPM> + Send + 'static,
         PSP: PersistableStateTransferProtocol + Send + 'static,
         Self: Sized,
     {

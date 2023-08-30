@@ -921,7 +921,7 @@ impl QuorumReconfig {
 /// Every `PERIOD` messages, the message log is cleared,
 /// and a new log checkpoint is initiated.
 /// TODO: Move this to an env variable as it can be highly dependent on the service implemented on top of it
-pub const CHECKPOINT_PERIOD: u32 = 500;
+pub const CHECKPOINT_PERIOD: u32 = 2500;
 
 impl<R> PartialEq for ReplicaPhase<R> where {
     fn eq(&self, other: &Self) -> bool {
