@@ -108,14 +108,26 @@ pub struct QuorumReconfig {
 }
 
 impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
-    where
-        RP: ReconfigurationProtocol + 'static,
-        D: ApplicationData + 'static,
-        OP: StatefulOrderProtocol<D, NT, PL> + PersistableOrderProtocol<D, OP::Serialization, OP::StateSerialization> + ReconfigurableOrderProtocol<RP::Serialization> + Send + 'static,
-        LT: LogTransferProtocol<D, OP, NT, PL> + 'static,
-        ST: StateTransferProtocol<S, NT, PL> + PersistableStateTransferProtocol + Send + 'static,
-        NT: SMRNetworkNode<RP::InformationProvider, RP::Serialization, D, OP::Serialization, ST::Serialization, LT::Serialization> + 'static,
-        PL: SMRPersistentLog<D, OP::Serialization, OP::StateSerialization> + 'static, {
+where
+    RP: ReconfigurationProtocol + 'static,
+    D: ApplicationData + 'static,
+    OP: StatefulOrderProtocol<D, NT, PL>
+        + PersistableOrderProtocol<D, OP::Serialization, OP::StateSerialization>
+        + ReconfigurableOrderProtocol<RP::Serialization>
+        + Send
+        + 'static,
+    LT: LogTransferProtocol<D, OP, NT, PL> + 'static,
+    ST: StateTransferProtocol<S, NT, PL> + PersistableStateTransferProtocol + Send + 'static,
+    NT: SMRNetworkNode<
+            RP::InformationProvider,
+            RP::Serialization,
+            D,
+            OP::Serialization,
+            ST::Serialization,
+            LT::Serialization,
+        > + 'static,
+    PL: SMRPersistentLog<D, OP::Serialization, OP::StateSerialization> + 'static,
+{
     async fn bootstrap(cfg: ReplicaConfig<RP, S, D, OP, ST, LT, NT, PL>, executor: ExecutorHandle<D>) -> Result<Self> {
         let ReplicaConfig {
             id: log_node_id,
@@ -651,16 +663,43 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
     }
 
     /// Mark the log transfer protocol as done
-    fn log_transfer_protocol_done(&mut self, state_transfer_protocol: &mut ST, first_seq: SeqNo, last_seq: SeqNo, requests_to_execute: Vec<D::Request>) -> Result<()> {
+    fn log_transfer_protocol_done(
+        &mut self,
+        state_transfer_protocol: &mut ST,
+        first_seq: SeqNo,
+        last_seq: SeqNo,
+        requests_to_execute: Vec<D::Request>,
+    ) -> Result<()> {
         let log_transfer_protocol_done = match &mut self.replica_phase {
             ReplicaPhase::OrderingProtocol => false,
-            ReplicaPhase::StateTransferProtocol { log_transfer, state_transfer } => {
+            ReplicaPhase::StateTransferProtocol {
+                log_transfer,
+                state_transfer,
+            } => {
+                // sometimes we would get a log transfer update nullifying the catch up requests
+                // so we verify if the new log transfer has more requests than the previous one
 
-                if log_transfer.is_none() {
-                    *log_transfer = Some((first_seq,last_seq,requests_to_execute));
+                if let Some(log) = log_transfer {
+                    if log.2.len() < requests_to_execute.len() {
+                        println!(
+                            "replacing log transfer {:?} {:?} {:?} with {:?} {:?} {:?}",
+                            log.0,
+                            log.1,
+                            log.2.len(),
+                            first_seq,
+                            last_seq,
+                            requests_to_execute.len()
+                        );
+
+                        *log_transfer = Some((first_seq, last_seq, requests_to_execute));
+                    }
+                } else {
+                    *log_transfer = Some((first_seq, last_seq, requests_to_execute));
                 }
 
-                if Self::is_log_transfer_done(log_transfer) & &Self::is_state_transfer_done(state_transfer) {
+                if Self::is_log_transfer_done(log_transfer)
+                    & &Self::is_state_transfer_done(state_transfer)
+                {
                     true
                 } else {
                     false
@@ -709,14 +748,14 @@ impl<RP, S, D, OP, ST, LT, NT, PL> Replica<RP, S, D, OP, ST, LT, NT, PL>
 // If both the state and the log start at 0, then we can just run the ordering protocol since
 // There is no state currently present.
                 if state_transfer.next() != *log_first && (state_transfer != SeqNo::ZERO && *log_first != SeqNo::ZERO) {
-                    error!("{:?} // Log transfer protocol and state transfer protocol are not in sync. Received {:?} state and {:?} - {:?} log", self.id(), state_transfer, * log_first, * log_last);
+                    println!("{:?} // Log transfer protocol and state transfer protocol are not in sync. Received {:?} state and {:?} - {:?} log", self.id(), state_transfer, * log_first, * log_last);
 
 // Run both the protocols again
 // This might work better since we already have a more up-to-date state (in
 // The case of a hugely large state) so the state transfer protocol should take less time
                     self.run_all_state_transfer(state_transfer_protocol)?;
                 } else {
-                    info!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log", self.id(), state_transfer, * log_first, * log_last);
+                    println!("{:?} // State transfer protocol and log transfer protocol are in sync. Received {:?} state and {:?} - {:?} log", self.id(), state_transfer, * log_first, * log_last);
 
                     /// If the protocols are lined up so we can start running the ordering protocol
                     self.run_ordering_protocol()?;

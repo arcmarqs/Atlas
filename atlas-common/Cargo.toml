@@ -123,6 +123,7 @@ crossbeam-channel = { version = "0.5.2", optional = true }
 crossbeam-skiplist = "0.1.1"
 rocksdb = { version = "0.20.1", optional = true }
 oneshot = "0.1.5"
+sled = { version = "0.34.7"}
 
 log = "0.4.17"
 #tracing = "0.1.32"
@@ -132,5 +133,3 @@ thiserror = "1.0.32"
 num-bigint = "0.4.3"
 num-traits = "0.2.15"
 
-[dependencies.sled]
-path = "../../sled"

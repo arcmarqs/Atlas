@@ -13,33 +13,23 @@ impl SledKVDB {
         T: AsRef<Path>,
     {
         let conf = Config::default()
+        .mode(sled::Mode::HighThroughput)
         .path(db_location)
-        .mode(sled::Mode::LowSpace)
-        .compression_factor(20)
-        .use_compression(true)
         .cache_capacity(2*1024*1024*1024);
 
         let db = conf.open().unwrap();
 
         for tree in prefixes {
 
-            db.open_tree(tree);
+            let _ = db.open_tree(tree);
         }
        
 
         Ok(SledKVDB { db })
     }
 
-    fn get_handle(&self, prefix: &'static str) -> Result<Tree> {
-
-        if self.db.contains_tree(prefix) {
-           self.db.open_tree(prefix).wrapped(ErrorKind::Persistentdb)
-        } else {
-            Err(Error::simple_with_msg(
-                ErrorKind::Persistentdb,
-                "Tree by that name does not exist",
-            ))
-        }           
+    fn get_handle(&self, prefix: &'static str) -> Result<Tree> {     
+           self.db.open_tree(prefix).wrapped(ErrorKind::Persistentdb)       
     }
 
     pub fn get<T>(&self, prefix: &'static str, key: T) -> Result<Option<Vec<u8>>>
@@ -119,7 +109,11 @@ impl SledKVDB {
             batch.insert(key, value);
         }
 
-        handle.apply_batch(batch).wrapped(ErrorKind::Persistentdb)
+        let ret = handle.apply_batch(batch).wrapped(ErrorKind::Persistentdb);
+        
+        handle.flush();
+
+        ret
     }
 
     pub fn erase<T>(&self, prefix: &'static str, key: T) -> Result<()>

@@ -11,7 +11,7 @@ use crate::{
 };
 use atlas_common::{crypto::hash::{Context, Digest}, collections::HashSet};
 use serde::{Deserialize, Serialize};
-use sled::{Config, Db, EventType, Mode, NodeEvent, Subscriber};
+use sled::{Config, Db, EventType, Mode, NodeEvent, Subscriber, IVec, Batch};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateOrchestrator {
@@ -26,6 +26,7 @@ pub struct StateOrchestrator {
 impl StateOrchestrator {
     pub fn new(path: &str) -> Self {
         let conf = Config::new()
+            .mode(Mode::HighThroughput)
             .compression_factor(10)
             .use_compression(true)
             .path(path);

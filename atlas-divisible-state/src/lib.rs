@@ -239,8 +239,7 @@ impl DivisibleState for StateOrchestrator {
 
             lock.insert_leaf(part.leaf.clone());
         }
-
-        let _ = self.db.flush();
+       // let _ = self.db.flush();
 
         Ok(())
     }
@@ -249,7 +248,7 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
-        let _ = self.db.flush();
+       // let _ = self.db.flush();
      /*    let parts_to_get: Vec<u64> = if let Ok(mut lock) = self.updates.updates.write() {
             if lock.is_empty() {
                 return Ok((vec![], self.get_descriptor()));
@@ -298,11 +297,9 @@ impl DivisibleState for StateOrchestrator {
 
     fn finalize_transfer(&self) -> atlas_common::error::Result<()> {
         println!("Verifying integrity");
-        let _ = self.db.flush();
 
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
-        self.updates.write().expect("failed to acquire lock").clear();
         self.mk_tree.lock().expect("failed to lock").calculate_tree();
         
         self.db
