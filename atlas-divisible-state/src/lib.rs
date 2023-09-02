@@ -1,4 +1,3 @@
-use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use atlas_common::error::ResultWrappedExt;
@@ -9,9 +8,9 @@ use atlas_execution::state::divisible_state::{
 };
 use atlas_metrics::metrics::metric_duration;
 use serde::{Deserialize, Serialize};
-use sled::{NodeEvent, Serialize as sled_serialize};
+use sled::{Serialize as sled_serialize};
 use state_orchestrator::StateOrchestrator;
-use state_tree::{LeafNode, Node, StateTree};
+use state_tree::{LeafNode,StateTree};
 use crate::metrics::CREATE_CHECKPOINT_TIME_ID;
 
 pub mod state_orchestrator;
@@ -106,7 +105,7 @@ impl SerializedTree {
     }
 
     pub fn from_state(state: StateTree) -> Result<Self, ()> {
-        state.full_serialized_tree()
+        state.to_serialized_tree()
     }
 }
 
@@ -127,32 +126,17 @@ impl Orderable for SerializedTree {
 }
 
 impl StateTree {
-    pub fn to_serialized_tree(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()> {
-        let node_read = node.read().unwrap();
-        let digest = node_read.get_hash();
-
+    pub fn to_serialized_tree(&self) -> Result<SerializedTree, ()> {
         let leaf_list = {
             let mut vec = Vec::new();
 
             for (_, node) in self.leaves.iter() {
-                vec.push(node.read().expect("failed to read").get_leaf().clone());
+                vec.push(node.clone());
             }
             vec
         };
-        Ok(SerializedTree::new(digest, self.seqno, leaf_list))
-    }
-
-    pub fn full_serialized_tree(&self) -> Result<SerializedTree, ()> {
-        if self.seqno == SeqNo::ZERO {
-            return Ok(SerializedTree::new(Digest::blank(), self.seqno, vec![]));
-        }
-
-        let root = self.bag_peaks();
-        if let Some(root) = root {
-            self.to_serialized_tree(root)
-        } else {
-            Err(())
-        }
+        
+        Ok(SerializedTree::new(self.root.unwrap(), self.seqno, leaf_list))
     }
 }
 
@@ -228,7 +212,6 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
-        let mut lock = self.mk_tree.lock().expect("Couldn't aquire lock");
 
         for part in parts {
             let node = part.to_node();
@@ -237,9 +220,9 @@ impl DivisibleState for StateOrchestrator {
                 panic!("Failed to import Page");
             }
 
-            lock.insert_leaf(part.leaf.clone());
+            self.mk_tree.insert_leaf(part.leaf.clone());
         }
-       // let _ = self.db.flush();
+        let _ = self.db.flush();
 
         Ok(())
     }
@@ -248,7 +231,7 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
-       // let _ = self.db.flush();
+        //let _ = self.db.flush();
      /*    let parts_to_get: Vec<u64> = if let Ok(mut lock) = self.updates.updates.write() {
             if lock.is_empty() {
                 return Ok((vec![], self.get_descriptor()));
@@ -262,25 +245,23 @@ impl DivisibleState for StateOrchestrator {
             return Ok((vec![], self.get_descriptor()));
         };*/
 
-        let mut parts_to_get = self.updates.write().expect("failed to aquire lock");
+        let mut parts_to_get = self.updates.lock().expect("failed to aquire lock");
         println!("updated: {:?}", parts_to_get.len());
         let mut state_parts = Vec::new();
 
         if !parts_to_get.is_empty() {
-            let mut tree_lock = self.mk_tree.lock().expect("Couldn't aquire lock");
-            let cur_seq = tree_lock.next_seqno();
+            let cur_seq = self.mk_tree.next_seqno();
 
             for pid in parts_to_get.drain() {
 
                 if let Some(node) = self.get_page(pid) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
-                    tree_lock.insert_leaf(serialized_part.leaf.clone());
+                    self.mk_tree.insert_leaf(serialized_part.leaf.clone());
                     state_parts.push(serialized_part);
                 }
             }
             
-            tree_lock.calculate_tree();
-            drop(tree_lock);
+            self.mk_tree.calculate_tree();
         }
 
         drop(parts_to_get);
@@ -292,15 +273,15 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn get_seqno(&self) -> atlas_common::error::Result<SeqNo> {
-        Ok(self.mk_tree.lock().expect("failed to get lock").get_seqno())
+        Ok(self.mk_tree.get_seqno())
     }
 
-    fn finalize_transfer(&self) -> atlas_common::error::Result<()> {
+    fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {
         println!("Verifying integrity");
 
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
-        self.mk_tree.lock().expect("failed to lock").calculate_tree();
+        self.mk_tree.calculate_tree();
         
         self.db
             .verify_integrity()

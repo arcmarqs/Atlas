@@ -1,4 +1,5 @@
 use atlas_common::{crypto::hash::*, ordering::SeqNo};
+use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
@@ -19,9 +20,10 @@ pub struct StateTree {
     // Sequence number of the latest update in the tree.
     pub seqno: SeqNo,
     // Stores the peaks by level, every time a new peak of the same level is inserted, a new internal node with level +1 is created.
-    pub peaks: BTreeMap<u32, NodeRef>,
+    //pub peaks: BTreeMap<u32, NodeRef>,
+    pub root: Option<Digest>,
     // stores references to all leaves, ordered by the page id
-    pub leaves: BTreeMap<u64, NodeRef>,
+    pub leaves: BTreeMap<u64, LeafNode>,
 }
 
 impl Default for StateTree {
@@ -29,7 +31,7 @@ impl Default for StateTree {
         Self {
             updated: false,
             seqno: SeqNo::ZERO,
-            peaks: Default::default(),
+            root: Default::default(),
             leaves: Default::default(),
         }
     }
@@ -40,7 +42,7 @@ impl StateTree {
         Self {
             updated: false,
             seqno: SeqNo::ZERO,
-            peaks: BTreeMap::new(),
+            root: Default::default(),
             leaves: BTreeMap::new(),
         }
     }
@@ -48,9 +50,9 @@ impl StateTree {
     pub fn insert_leaf(&mut self, leaf: LeafNode) {
         self.seqno = self.seqno.max(leaf.seqno);
         let leaf_pid = leaf.get_pid();
-        let new_leaf = Arc::new(RwLock::new(Node::Leaf(leaf)));
-        if let Some(old) = self.leaves.insert(leaf_pid, new_leaf.clone()) {
-            if old.read().unwrap().get_hash() == new_leaf.read().unwrap().get_hash() {
+        let leaf_digest = leaf.get_digest();
+        if let Some(old) = self.leaves.insert(leaf_pid, leaf) {
+            if old.get_digest() == leaf_digest {
                 //value already inserted, no need to continue
                 
                 return;
@@ -152,39 +154,44 @@ impl StateTree {
         self.leaves
             .get(&pid)
             .unwrap()
-            .read()
-            .unwrap()
-            .get_leaf()
             .clone()
     }
 
     pub fn calculate_tree(&mut self) {
-        self.peaks.clear();
-        
+        let mut peaks = BTreeMap::new();       
+        let mut hasher = blake3::Hasher::default();
         for leaf in self.leaves.values() {
-            let mut node = leaf.clone();
-            let mut level = node.read().expect("Failed to read").get_level();
+            let mut node_digest = leaf.get_digest();
+            let mut level = 0;
 
-            while let Some(same_level) = self.peaks.insert(level, node.clone()) {
-                let new_peak = InternalNode::new(same_level, node.clone());
-                node =  Arc::new(RwLock::new(Node::Internal(new_peak.into())));
-                level = node.read().expect("Failed to read").get_level();
+            while let Some(same_level) = peaks.insert(level, node_digest) {
+                hasher.update(same_level.as_ref());
+                hasher.update(node_digest.as_ref());
+                node_digest = Digest::from_bytes(hasher.finalize().as_bytes()).expect("failed to convert bytes");                
+                hasher.reset();
+                peaks.remove(&level);
 
-                self.peaks.remove(&level);
+                level +=1;
             }   
         }
+
+        self.root = self.bag_peaks(peaks);
     }
 
     // iterates over peaks and consolidates them into a single node
-    pub fn bag_peaks(&self) -> Option<NodeRef> {
-        let mut bagged_peaks: Vec<NodeRef> = Vec::new();
+    fn bag_peaks(&self, peaks: BTreeMap<u32, Digest>) -> Option<Digest> {
+        let mut bagged_peaks: Vec<Digest> = Vec::new();
+        let mut hasher = blake3::Hasher::default();
 
         // Iterating in reverse makes the tree more unbalanced, but preserves the order of insertion,
         // this is important when serializing or sending the tree since we send only the root digest and the leaves.
-        for peak in self.peaks.values().rev() {
+        for peak in peaks.values().rev() {
             if let Some(top) = bagged_peaks.pop() {
-                let new_top = Node::internal(top, peak.clone());
-                bagged_peaks.push(Arc::new(RwLock::new(new_top)));
+                hasher.update(top.as_ref());
+                hasher.update(peak.as_ref());
+                let new_top = Digest::from_bytes(hasher.finalize().as_bytes()).expect("failed to convert bytes");
+                hasher.reset();
+                bagged_peaks.push(new_top);
             } else {
                 bagged_peaks.push(peak.clone());
             }
@@ -205,7 +212,7 @@ impl StateTree {
     }
 }
 
-pub type NodeRef = Arc<RwLock<Node>>;
+/* pub type NodeRef = Node;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, PartialOrd)]
 pub enum Node {
@@ -368,6 +375,7 @@ impl PartialOrd for InternalNode {
         }
     }
 }
+*/
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode {

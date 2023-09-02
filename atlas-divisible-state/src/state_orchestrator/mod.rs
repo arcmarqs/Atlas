@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    state_tree::{Node, StateTree},
+    state_tree::StateTree,
     SerializedTree,
 };
 use atlas_common::{crypto::hash::{Context, Digest}, collections::HashSet};
@@ -18,9 +18,9 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub updates: Arc<RwLock<HashSet<u64>>>,
+    pub updates: Arc<Mutex<HashSet<u64>>>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub mk_tree: Arc<Mutex<StateTree>>,
+    pub mk_tree: StateTree,
 }
 
 impl StateOrchestrator {
@@ -35,8 +35,8 @@ impl StateOrchestrator {
 
         Self {
             db: Arc::new(db),
-            updates: Arc::new(RwLock::new(HashSet::default())),
-            mk_tree: Arc::new(Mutex::new(StateTree::default())),
+            updates: Arc::new(Mutex::new(HashSet::default())),
+            mk_tree: StateTree::default(),
         }
     }
 
@@ -117,30 +117,21 @@ impl StateOrchestrator {
     }
 
     pub fn get_descriptor_inner(&self) -> Result<SerializedTree, ()> {
-        match self.mk_tree.lock() {
-            Ok(lock) => lock.full_serialized_tree(),
-            Err(_) => Err(()),
-        }
+        self.mk_tree.to_serialized_tree()
     }
 
-    pub fn get_partial_descriptor(&self, node: Arc<RwLock<Node>>) -> Result<SerializedTree, ()> {
-        match self.mk_tree.lock() {
-            Ok(lock) => lock.to_serialized_tree(node),
-            Err(_) => Err(()),
-        }
-    }
 }
 
-pub async fn monitor_changes(state: Arc<RwLock<HashSet<u64>>>, mut subscriber: Subscriber) {
+pub async fn monitor_changes(state: Arc<Mutex<HashSet<u64>>>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
             EventType::Split { lhs, rhs } => {
-                let mut lock = state.write().expect("failed to acquire lock");
+                let mut lock = state.lock().expect("failed to acquire lock");
                 lock.insert(lhs.pid);
                 lock.insert(rhs.pid);
             }
             EventType::Merge { lhs, rhs, parent } => {
-                let mut lock = state.write().expect("failed to acquire lock");
+                let mut lock = state.lock().expect("failed to acquire lock");
                 lock.insert(lhs.pid);
                 lock.insert(rhs.pid);
                 if let Some(parent_ref) = parent {
@@ -148,7 +139,7 @@ pub async fn monitor_changes(state: Arc<RwLock<HashSet<u64>>>, mut subscriber: S
                 }
             }
             EventType::Node(n) => {
-                let mut lock = state.write().expect("failed to acquire lock");
+                let mut lock = state.lock().expect("failed to acquire lock");
                 lock.insert(n.pid);
             }
             _ => {}
