@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     collections::BTreeMap,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock}, rc::Rc,
 };
 
 // This Merkle tree is based on merkle mountain ranges
@@ -23,7 +23,7 @@ pub struct StateTree {
     //pub peaks: BTreeMap<u32, NodeRef>,
     pub root: Option<Digest>,
     // stores references to all leaves, ordered by the page id
-    pub leaves: BTreeMap<u64, LeafNode>,
+    pub leaves: BTreeMap<u64, Arc<LeafNode>>,
 }
 
 impl Default for StateTree {
@@ -47,14 +47,13 @@ impl StateTree {
         }
     }
 
-    pub fn insert_leaf(&mut self, leaf: LeafNode) {
+    pub fn insert_leaf(&mut self, leaf: Arc<LeafNode>) {
         self.seqno = self.seqno.max(leaf.seqno);
         let leaf_pid = leaf.get_pid();
-        let leaf_digest = leaf.get_digest();
-        if let Some(old) = self.leaves.insert(leaf_pid, leaf) {
-            if old.get_digest() == leaf_digest {
+        if let Some(old) = self.leaves.insert(leaf_pid, leaf.clone()) {
+            if old.get_digest() == leaf.digest {
                 //value already inserted, no need to continue
-                
+
                 return;
             }
 
@@ -148,7 +147,7 @@ impl StateTree {
         }
     }
 
-    */
+   
 
     pub fn get_leaf(&self, pid: u64) -> LeafNode {
         self.leaves
@@ -156,6 +155,7 @@ impl StateTree {
             .unwrap()
             .clone()
     }
+     */
 
     pub fn calculate_tree(&mut self) {
         let mut peaks = BTreeMap::new();       
@@ -377,7 +377,7 @@ impl PartialOrd for InternalNode {
 }
 */
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct LeafNode {
     pub seqno: SeqNo,
     pub pid: u64,

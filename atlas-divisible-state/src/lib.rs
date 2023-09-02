@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::time::Instant;
 
 use atlas_common::error::ResultWrappedExt;
@@ -131,7 +132,7 @@ impl StateTree {
             let mut vec = Vec::new();
 
             for (_, node) in self.leaves.iter() {
-                vec.push(node.clone());
+                vec.push(**node);
             }
             vec
         };
@@ -220,7 +221,7 @@ impl DivisibleState for StateOrchestrator {
                 panic!("Failed to import Page");
             }
 
-            self.mk_tree.insert_leaf(part.leaf.clone());
+            self.mk_tree.insert_leaf(Arc::new(part.leaf));
         }
         let _ = self.db.flush();
 
@@ -256,7 +257,7 @@ impl DivisibleState for StateOrchestrator {
 
                 if let Some(node) = self.get_page(pid) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
-                    self.mk_tree.insert_leaf(serialized_part.leaf.clone());
+                    self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
                 }
             }
