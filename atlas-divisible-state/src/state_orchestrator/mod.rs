@@ -1,7 +1,6 @@
 use std::{
-    collections::{BTreeMap, BTreeSet},
     sync::{
-        Arc, Mutex, RwLock,
+        Arc, Mutex
     },
 };
 
@@ -11,7 +10,7 @@ use crate::{
 };
 use atlas_common::{crypto::hash::{Context, Digest}, collections::HashSet};
 use serde::{Deserialize, Serialize};
-use sled::{Config, Db, EventType, Mode, NodeEvent, Subscriber, IVec, Batch};
+use sled::{Config, Db, EventType, Mode, Subscriber};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateOrchestrator {
@@ -127,20 +126,17 @@ pub async fn monitor_changes(state: Arc<Mutex<HashSet<u64>>>, mut subscriber: Su
         match event {
             EventType::Split { lhs, rhs } => {
                 let mut lock = state.lock().expect("failed to acquire lock");
-                lock.insert(lhs.pid);
-                lock.insert(rhs.pid);
+                lock.insert(lhs);
+                lock.insert(rhs);
             }
             EventType::Merge { lhs, rhs, parent } => {
                 let mut lock = state.lock().expect("failed to acquire lock");
-                lock.insert(lhs.pid);
-                lock.insert(rhs.pid);
-                if let Some(parent_ref) = parent {
-                    lock.insert(parent_ref.pid);
-                }
+                lock.insert(lhs);
+                lock.insert(rhs);
             }
             EventType::Node(n) => {
                 let mut lock = state.lock().expect("failed to acquire lock");
-                lock.insert(n.pid);
+                lock.insert(n);
             }
             _ => {}
         }

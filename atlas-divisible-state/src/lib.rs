@@ -9,7 +9,7 @@ use atlas_execution::state::divisible_state::{
 };
 use atlas_metrics::metrics::metric_duration;
 use serde::{Deserialize, Serialize};
-use sled::{Serialize as sled_serialize};
+use sled::Serialize as sled_serialize;
 use state_orchestrator::StateOrchestrator;
 use state_tree::{LeafNode,StateTree};
 use crate::metrics::CREATE_CHECKPOINT_TIME_ID;
@@ -223,7 +223,7 @@ impl DivisibleState for StateOrchestrator {
 
             self.mk_tree.insert_leaf(Arc::new(part.leaf));
         }
-        let _ = self.db.flush();
+        //let _ = self.db.flush();
 
         Ok(())
     }
@@ -247,18 +247,18 @@ impl DivisibleState for StateOrchestrator {
         };*/
 
         let mut parts_to_get = self.updates.lock().expect("failed to aquire lock");
-        println!("updated: {:?}", parts_to_get.len());
         let mut state_parts = Vec::new();
 
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
 
             for pid in parts_to_get.drain() {
-
                 if let Some(node) = self.get_page(pid) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
+                } else {
+                    self.mk_tree.leaves.remove(&pid);
                 }
             }
             

@@ -1,10 +1,9 @@
 use atlas_common::{crypto::hash::*, ordering::SeqNo};
-use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     collections::BTreeMap,
-    sync::{Arc, RwLock}, rc::Rc,
+    sync::Arc,
 };
 
 // This Merkle tree is based on merkle mountain ranges
