@@ -221,7 +221,7 @@ impl DivisibleState for StateOrchestrator {
                 panic!("Failed to import Page");
             }
 
-            self.mk_tree.insert_leaf(Arc::new(part.leaf));
+            //self.mk_tree.insert_leaf(Arc::new(part.leaf));
         }
         //let _ = self.db.flush();
 
@@ -277,12 +277,32 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {
-        println!("Verifying integrity");
 
+        let parts_to_get = self.updates.lock().expect("failed to aquire lock").drain().collect::<Vec<_>>();
+
+        if !parts_to_get.is_empty() {
+            let cur_seq = self.mk_tree.next_seqno();
+
+            for pid in parts_to_get {
+                if let Some(node) = self.get_page(pid) {
+                   let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+                    self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
+                } else {
+                    println!("part does not exist");
+                    self.mk_tree.leaves.remove(&pid);
+                }
+            }
+            
+            self.mk_tree.calculate_tree();
+        }
+        
+        
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
-        self.mk_tree.calculate_tree();
-        
+        //self.mk_tree.calculate_tree();
+
+       println!("Verifying integrity");
+
         self.db
             .verify_integrity()
             .wrapped(atlas_common::error::ErrorKind::Error)
