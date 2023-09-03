@@ -129,7 +129,7 @@ pub async fn monitor_changes(state: Arc<Mutex<HashSet<u64>>>, mut subscriber: Su
                 lock.insert(lhs);
                 lock.insert(rhs);
             }
-            EventType::Merge { lhs, rhs, parent } => {
+            EventType::Merge { lhs, rhs, ..} => {
                 let mut lock = state.lock().expect("failed to acquire lock");
                 lock.insert(lhs);
                 lock.insert(rhs);

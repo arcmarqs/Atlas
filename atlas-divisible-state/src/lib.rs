@@ -30,7 +30,7 @@ impl SerializedState {
         let bytes = sled_serialize::serialize(&node);
         let mut hasher = blake3::Hasher::new();
 
-        hasher.update(&pid.to_be_bytes());
+        //hasher.update(&pid.to_be_bytes());
         hasher.update(bytes.as_slice());
 
         Self {
@@ -50,7 +50,7 @@ impl SerializedState {
     pub fn hash(&self) -> Digest {
         let mut hasher = blake3::Hasher::new();
 
-        hasher.update(&self.leaf.pid.to_be_bytes());
+        //hasher.update(&self.leaf.pid.to_be_bytes());
         hasher.update(self.bytes.as_slice());
 
         Digest::from_bytes(hasher.finalize().as_bytes()).unwrap()
@@ -246,26 +246,25 @@ impl DivisibleState for StateOrchestrator {
             return Ok((vec![], self.get_descriptor()));
         };*/
 
-        let mut parts_to_get = self.updates.lock().expect("failed to aquire lock");
+        let parts_to_get = self.updates.lock().expect("failed to aquire lock").drain().collect::<Vec<_>>();
         let mut state_parts = Vec::new();
 
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
 
-            for pid in parts_to_get.drain() {
+            for pid in parts_to_get {
                 if let Some(node) = self.get_page(pid) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
                 } else {
+                    println!("part does not exist");
                     self.mk_tree.leaves.remove(&pid);
                 }
             }
             
             self.mk_tree.calculate_tree();
         }
-
-        drop(parts_to_get);
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 

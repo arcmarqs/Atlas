@@ -164,8 +164,8 @@ impl StateTree {
             let mut level = 0;
 
             while let Some(same_level) = peaks.insert(level, node_digest) {
-                hasher.update(same_level.as_ref());
-                hasher.update(node_digest.as_ref());
+                let buf = [same_level.as_ref(),node_digest.as_ref()].concat();
+                hasher.update(buf.as_ref());
                 node_digest = Digest::from_bytes(hasher.finalize().as_bytes()).expect("failed to convert bytes");                
                 hasher.reset();
                 peaks.remove(&level);
@@ -186,8 +186,8 @@ impl StateTree {
         // this is important when serializing or sending the tree since we send only the root digest and the leaves.
         for peak in peaks.values().rev() {
             if let Some(top) = bagged_peaks.pop() {
-                hasher.update(top.as_ref());
-                hasher.update(peak.as_ref());
+                let buf = [top.as_ref(),peak.as_ref()].concat();
+                hasher.update(buf.as_ref());
                 let new_top = Digest::from_bytes(hasher.finalize().as_bytes()).expect("failed to convert bytes");
                 hasher.reset();
                 bagged_peaks.push(new_top);
