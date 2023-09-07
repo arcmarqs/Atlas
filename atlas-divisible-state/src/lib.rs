@@ -223,7 +223,7 @@ impl DivisibleState for StateOrchestrator {
 
             //self.mk_tree.insert_leaf(Arc::new(part.leaf));
         }
-        //let _ = self.db.flush();
+        let _ = self.db.flush();
 
         Ok(())
     }
