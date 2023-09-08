@@ -25,9 +25,6 @@ pub struct StateOrchestrator {
 impl StateOrchestrator {
     pub fn new(path: &str) -> Self {
         let conf = Config::new()
-            .mode(Mode::HighThroughput)
-            .compression_factor(10)
-            .use_compression(true)
             .path(path);
 
         let db = conf.open().unwrap();
