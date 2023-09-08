@@ -214,11 +214,10 @@ impl DivisibleState for StateOrchestrator {
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
 
-        let db_lock = self.db.lock().expect("failed to lock");
         for part in parts {
             let node = part.to_node();
 
-            if let Err(_) = db_lock.import_node(part.leaf.pid, node) {
+            if let Err(_) = self.db.import_node(part.leaf.pid, node) {
                 panic!("Failed to import Page");
             }
 
@@ -252,9 +251,8 @@ impl DivisibleState for StateOrchestrator {
         println!("updated: {:?}",parts_to_get.len());
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
-            let db_lock = self.db.lock().expect("failed to lock");
             for pid in parts_to_get {
-                if let Some(node) = db_lock.export_node(pid) {
+                if let Some(node) = self.get_page(pid) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
@@ -304,8 +302,7 @@ impl DivisibleState for StateOrchestrator {
 
        println!("Verifying integrity");
 
-        self.db.lock()
-            .expect("failed to lock")
+        self.db
             .verify_integrity()
             .wrapped(atlas_common::error::ErrorKind::Error)
     }
