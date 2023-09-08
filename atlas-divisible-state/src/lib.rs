@@ -248,7 +248,7 @@ impl DivisibleState for StateOrchestrator {
 
         let parts_to_get = self.updates.lock().expect("failed to aquire lock").drain().collect::<Vec<_>>();
         let mut state_parts = Vec::new();
-
+        println!("updated: {:?}",parts_to_get.len());
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
 
