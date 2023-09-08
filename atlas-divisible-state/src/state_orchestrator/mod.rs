@@ -15,7 +15,7 @@ use sled::{Config, Db, EventType, Mode, Subscriber};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
-    pub db: Arc<Db>,
+    pub db: Arc<Mutex<Db>>,
     #[serde(skip_serializing, skip_deserializing)]
     pub updates: Arc<Mutex<HashSet<u64>>>,
     #[serde(skip_serializing, skip_deserializing)]
@@ -30,21 +30,21 @@ impl StateOrchestrator {
         let db = conf.open().unwrap();
 
         Self {
-            db: Arc::new(db),
+            db: Arc::new(Mutex::new(db)),
             updates: Arc::new(Mutex::new(HashSet::default())),
             mk_tree: StateTree::default(),
         }
     }
 
     pub fn get_subscriber(&self) -> Subscriber {
-        self.db.watch_prefix(vec![])
+        self.db.lock().expect("failed to lock").watch_prefix(vec![])
     }
 
     pub fn insert(&self, key: String, value: String) {
-        self.db.insert(key, value);
+        self.db.lock().expect("failed to lock").insert(key, value);
     }
 
-    pub fn checksum_prefix(&self, prefix: &[u8]) -> Digest {
+  /*   pub fn checksum_prefix(&self, prefix: &[u8]) -> Digest {
         let mut iterator = self.db.scan_prefix(prefix);
         let mut hasher = Context::new();
 
@@ -90,6 +90,7 @@ impl StateOrchestrator {
             }
         }
     }
+    */
 
     /*  pub fn print_mktree(&self) {
         let tree_lock = self.descriptor.tree.lock().unwrap();
@@ -101,11 +102,11 @@ impl StateOrchestrator {
     } */
 
     pub fn get_page(&self, pid: u64) -> Option<sled::Node> {
-        self.db.export_node(pid)
+        self.db.lock().expect("failed to lock").export_node(pid)
     }
 
     pub fn import_page(&self, pid: u64, node: sled::Node) -> Result<(), ()> {
-        if let Ok(()) = self.db.import_node(pid, node) {
+        if let Ok(()) = self.db.lock().expect("failed to lock").import_node(pid, node) {
             Ok(())
         } else {
             Err(())
