@@ -232,7 +232,7 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
-        let _ = self.db.flush();
+       // let _ = self.db.flush();
      /*    let parts_to_get: Vec<u64> = if let Ok(mut lock) = self.updates.updates.write() {
             if lock.is_empty() {
                 return Ok((vec![], self.get_descriptor()));
