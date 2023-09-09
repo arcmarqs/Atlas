@@ -1,7 +1,7 @@
 use std::{
     sync::{
         Arc, Mutex
-    },
+    }, thread::spawn,
 };
 
 use crate::{
@@ -29,12 +29,21 @@ impl StateOrchestrator {
         .path(path);
 
         let db = conf.open().unwrap();
+        let updates = Arc::new(Mutex::new(HashSet::default()));
+        let subscriber = db.watch_prefix(vec![]);
 
-        Self {
+        let ret = Self {
             db: Arc::new(db),
-            updates: Arc::new(Mutex::new(HashSet::default())),
+            updates: updates.clone(),
             mk_tree: StateTree::default(),
-        }
+        };
+
+        let _ = spawn( move ||
+            monitor_changes(
+                updates.clone(),
+                subscriber));
+
+       ret
     }
 
     pub fn get_subscriber(&self) -> Subscriber {
