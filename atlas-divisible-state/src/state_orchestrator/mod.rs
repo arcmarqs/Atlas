@@ -1,17 +1,20 @@
 use std::{
     sync::{
         Arc, Mutex
-    }, thread::spawn,
+    },
 };
 
 use crate::{
     state_tree::StateTree,
     SerializedTree,
 };
-use atlas_common::{crypto::hash::{Context, Digest}, collections::HashSet};
+use atlas_common::{crypto::hash::{Context, Digest}, collections::HashSet, error::Error, async_runtime::spawn};
+use atlas_execution::app::{UpdateBatch, BatchReplies};
 use serde::{Deserialize, Serialize};
-use sled::{Config, Db, EventType, Mode, Subscriber};
+use sled::{Config, Db, EventType, Mode, Subscriber, transaction};
 
+
+ 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
@@ -38,7 +41,7 @@ impl StateOrchestrator {
             mk_tree: StateTree::default(),
         };
 
-        let _ = spawn( move ||
+        let _ = spawn(
             monitor_changes(
                 updates.clone(),
                 subscriber));
@@ -52,6 +55,10 @@ impl StateOrchestrator {
 
     pub fn insert(&self, key: String, value: String) {
         self.db.insert(key, value);
+    }
+
+    pub fn generate_id(&self) -> u64 {
+        self.db.generate_id().expect("Failed to Generate id")
     }
 
   /*   pub fn checksum_prefix(&self, prefix: &[u8]) -> Digest {
@@ -68,7 +75,8 @@ impl StateOrchestrator {
 
     //Exports all entries with a certain prefix.
     pub fn export_prefix(&self, prefix: &[u8]) -> Vec<Vec<Vec<u8>>> {
-        let kvs_iter = self.db.scan_prefix(prefix);
+        let kvs_iter = self.db.scan_prefix(prefix);use atlas_common::persistentdb::sled;
+
 
         kvs_iter
             .map(|kv_opt| {
