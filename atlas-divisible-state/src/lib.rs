@@ -233,25 +233,13 @@ impl DivisibleState for StateOrchestrator {
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
        // let _ = self.db.flush();
-     /*    let parts_to_get: Vec<u64> = if let Ok(mut lock) = self.updates.updates.write() {
-            if lock.is_empty() {
-                return Ok((vec![], self.get_descriptor()));
-            }
-            
-            let ret = lock.iter().map(|k| *k).collect();
-
-            lock.clear();
-            ret
-        } else {
-            return Ok((vec![], self.get_descriptor()));
-        };*/
-
-        let parts_to_get = self.updates.lock().expect("failed to aquire lock").drain().collect::<Vec<_>>();
+     
+        let mut parts_to_get = self.updates.lock().expect("failed to aquire lock");
         let mut state_parts = Vec::new();
         println!("updated: {:?}",parts_to_get.len());
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
-            for pid in parts_to_get {
+            for pid in parts_to_get.drain() {
                 if let Some(node) = self.get_page(pid) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
@@ -264,6 +252,8 @@ impl DivisibleState for StateOrchestrator {
             
             self.mk_tree.calculate_tree();
         }
+
+        drop(parts_to_get);
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
