@@ -244,6 +244,7 @@ impl DivisibleState for StateOrchestrator {
             for pid in parts_to_get.iter() {
                 if let Some(node) = self.get_page(pid.clone(), &guard) {
                     let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
+                    println!("part {:?} {:?}", serialized_part.leaf.pid,serialized_part.leaf.digest);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
                 } else {
