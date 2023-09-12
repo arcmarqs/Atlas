@@ -245,10 +245,12 @@ impl DivisibleState for StateOrchestrator {
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
                 } else {
-                    println!("part does not exist");
+                    println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
             }
+
+            println!("leaves {:?}", self.mk_tree.leaves.iter());
             
             self.mk_tree.calculate_tree();
         }
