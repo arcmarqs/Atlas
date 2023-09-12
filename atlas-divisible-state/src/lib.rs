@@ -29,10 +29,10 @@ pub struct SerializedState {
 impl SerializedState {
     pub fn from_node(pid: u64, node: sled::Node, seq: SeqNo) -> Self {
         let bytes = sled_serialize::serialize(&node);
-        let mut hasher = blake3::Hasher::new();
+       // let mut hasher = blake3::Hasher::new();
 
         //hasher.update(&pid.to_be_bytes());
-        hasher.update(bytes.as_slice());
+        //hasher.update(bytes.as_slice());
 
         Self {
             bytes,
