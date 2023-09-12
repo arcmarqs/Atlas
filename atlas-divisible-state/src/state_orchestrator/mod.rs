@@ -10,7 +10,7 @@ use crate::{
 };
 use atlas_common::async_runtime::spawn;
 use serde::{Deserialize, Serialize};
-use sled::{Config, Db, EventType, Mode, Subscriber};
+use sled::{Config, Db, EventType, Mode, Subscriber, Guard};
 
 
  
@@ -118,8 +118,8 @@ impl StateOrchestrator {
         println!("total leaves: {:?}", tree_lock.leaves.len());
     } */
 
-    pub fn get_page(&self, pid: u64) -> Option<sled::Node> {
-        self.db.export_node(pid)
+    pub fn get_page<'g>(&self, pid: u64, guard: &'g Guard) -> Option<sled::Node> {
+        self.db.export_node(pid,guard)
     }
 
     pub fn import_page(&self, pid: u64, node: sled::Node) -> Result<(), ()> {

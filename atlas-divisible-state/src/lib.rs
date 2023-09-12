@@ -10,6 +10,7 @@ use atlas_execution::state::divisible_state::{
 use atlas_metrics::metrics::metric_duration;
 use serde::{Deserialize, Serialize};
 use sled::Serialize as sled_serialize;
+use sled::pin;
 use state_orchestrator::StateOrchestrator;
 use state_tree::{LeafNode,StateTree};
 use crate::metrics::CREATE_CHECKPOINT_TIME_ID;
@@ -239,8 +240,9 @@ impl DivisibleState for StateOrchestrator {
         println!("updated: {:?}",parts_to_get.len());
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
+            let guard = pin();
             for pid in parts_to_get.iter() {
-                if let Some(node) = self.get_page(pid.clone()) {
+                if let Some(node) = self.get_page(pid.clone(), &guard) {
                     let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
@@ -273,8 +275,9 @@ impl DivisibleState for StateOrchestrator {
 
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
+            let guard = pin();
             for pid in parts_to_get.iter() {
-                if let Some(node) = self.get_page(pid.clone()) {
+                if let Some(node) = self.get_page(pid.clone(),&guard) {
                     let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                 } else {
