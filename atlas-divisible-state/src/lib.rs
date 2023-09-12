@@ -243,9 +243,9 @@ impl DivisibleState for StateOrchestrator {
             let guard = pin();
             for pid in parts_to_get.iter() {
                 if let Some(node) = self.get_page(pid.clone(), &guard) {
+                    println!("pid {:?} hash {:?}", pid, node);
                     let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
-                    println!("pid {:?} hash {:?}", serialized_part.leaf.pid, serialized_part.leaf.digest);
                     state_parts.push(serialized_part);
                 } else {
                     println!("part {:?} does not exist", &pid);
