@@ -16,6 +16,5 @@ atlas-metrics = {path = "../atlas-metrics" }
 serde = { version = "*", optional = false }
 blake3 = { version = "*", optional = false }
 
-
 [dependencies.sled]
 path = "../../sled"

@@ -239,9 +239,9 @@ impl DivisibleState for StateOrchestrator {
         println!("updated: {:?}",parts_to_get.len());
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
-            for pid in parts_to_get.drain() {
-                if let Some(node) = self.get_page(pid) {
-                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+            for pid in parts_to_get.iter() {
+                if let Some(node) = self.get_page(pid.clone()) {
+                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
                 } else {
@@ -249,6 +249,8 @@ impl DivisibleState for StateOrchestrator {
                     self.mk_tree.leaves.remove(&pid);
                 }
             }
+
+            parts_to_get.clear();
 
             println!("leaves {:?}", self.mk_tree.leaves.iter());
             
@@ -269,20 +271,23 @@ impl DivisibleState for StateOrchestrator {
 
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {
 
-        let parts_to_get = self.updates.lock().expect("failed to aquire lock").drain().collect::<Vec<_>>();
+        let mut parts_to_get = self.updates.lock().expect("failed to aquire lock");
 
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
-
-            for pid in parts_to_get {
-                if let Some(node) = self.get_page(pid) {
-                   let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+            for pid in parts_to_get.iter() {
+                if let Some(node) = self.get_page(pid.clone()) {
+                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                 } else {
-                    println!("part does not exist");
+                    println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
             }
+
+            parts_to_get.clear();
+
+            println!("leaves {:?}", self.mk_tree.leaves.iter());
             
             self.mk_tree.calculate_tree();
         }
