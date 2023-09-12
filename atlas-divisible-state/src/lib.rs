@@ -251,8 +251,6 @@ impl DivisibleState for StateOrchestrator {
             }
 
             parts_to_get.clear();
-
-            println!("leaves {:?}", self.mk_tree.leaves.iter());
             
             self.mk_tree.calculate_tree();
         }
@@ -286,8 +284,6 @@ impl DivisibleState for StateOrchestrator {
             }
 
             parts_to_get.clear();
-
-            println!("leaves {:?}", self.mk_tree.leaves.iter());
             
             self.mk_tree.calculate_tree();
         }
