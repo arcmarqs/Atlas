@@ -243,7 +243,6 @@ impl DivisibleState for StateOrchestrator {
             let guard = pin();
             for pid in parts_to_get.iter() {
                 if let Some(node) = self.get_page(pid.clone(), &guard) {
-                    println!("pid {:?}", pid);
                     let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
@@ -252,7 +251,6 @@ impl DivisibleState for StateOrchestrator {
                     self.mk_tree.leaves.remove(&pid);
                 }
             }
-
             parts_to_get.clear();
             
             self.mk_tree.calculate_tree();
@@ -260,6 +258,7 @@ impl DivisibleState for StateOrchestrator {
 
         drop(parts_to_get);
 
+        println!("{:?}", self.mk_tree.leaves);
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
