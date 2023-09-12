@@ -39,7 +39,7 @@ impl SerializedState {
             leaf: LeafNode::new(
                 seq,
                 pid,
-                Digest::from_bytes(hasher.finalize().as_bytes()).unwrap(),
+                Digest::from_bytes(&node.hash()).unwrap(),
             ),
         }
     }
