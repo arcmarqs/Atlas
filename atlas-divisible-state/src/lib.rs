@@ -219,14 +219,14 @@ impl DivisibleState for StateOrchestrator {
 
         for part in parts {
             let pairs = part.to_pairs();
-            let mut batch = sled::Batch::default();            
-            self.mk_tree.insert_leaf(part.leaf);
+            //let mut batch = sled::Batch::default();            
+            //self.mk_tree.insert_leaf(part.leaf);
 
             for (k,v) in pairs {
-              batch.insert(k, v); 
+              self.db.insert(k, v); 
             }
 
-            self.db.apply_batch(batch).expect("failed to apply batch");
+            //self.db.apply_batch(batch).expect("failed to apply batch");
           
         }
         //let _ = self.db.flush();
@@ -277,7 +277,24 @@ impl DivisibleState for StateOrchestrator {
         
                
   
-        self.mk_tree.calculate_tree();
+        let mut parts = self.updates.lock().expect("failed to lock");
+
+        if !parts.is_empty() {
+            println!("{:?}",parts.len());
+            let cur_seq = self.mk_tree.next_seqno();
+            let guard = pin();
+
+            for pid in parts.drain() {
+                if let Some(node) = self.get_page(pid, &guard) {
+                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+                    self.mk_tree.insert_leaf(serialized_part.leaf);
+                } else {
+                    println!("part {:?} does not exist", &pid);
+                    self.mk_tree.leaves.remove(&pid);
+                }
+            }            
+            self.mk_tree.calculate_tree();
+        }
         
         println!("finished st {:?}", self.get_descriptor());
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
