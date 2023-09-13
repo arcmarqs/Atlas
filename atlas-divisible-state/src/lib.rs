@@ -233,15 +233,17 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
-       // let _ = self.db.flush();
+        let _ = self.db.flush();
 
         let mut state_parts = Vec::new();
         
         if !self.updates.is_empty() {
             println!("{:?}", self.updates.len());
+            let parts_to_get = self.updates.iter().map(|r| r.key().clone()).collect::<Vec<_>>();
+            self.updates.clear();
             let cur_seq = self.mk_tree.next_seqno();
-            let guard = pin();
-            for pid in self.updates.iter().map(|r| r.key().clone()) {
+            for pid in parts_to_get {
+                let guard = pin();
                 if let Some(node) = self.get_page(pid, &guard) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
@@ -254,7 +256,6 @@ impl DivisibleState for StateOrchestrator {
             self.mk_tree.calculate_tree();
         }
 
-        self.updates.clear();
 
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
@@ -271,9 +272,11 @@ impl DivisibleState for StateOrchestrator {
         
         if !self.updates.is_empty() {
             println!("{:?}", self.updates.len());
+            let parts_to_get = self.updates.iter().map(|r| r.key().clone()).collect::<Vec<_>>();
+            self.updates.clear();
             let cur_seq = self.mk_tree.next_seqno();
-            let guard = pin();
-            for pid in self.updates.iter().map(|r| r.key().clone()) {
+            for pid in parts_to_get {
+                let guard = pin();
                 if let Some(node) = self.get_page(pid, &guard) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
@@ -284,8 +287,6 @@ impl DivisibleState for StateOrchestrator {
             }            
             self.mk_tree.calculate_tree();
         }
-        
-        self.updates.clear();
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
         //self.mk_tree.calculate_tree();
