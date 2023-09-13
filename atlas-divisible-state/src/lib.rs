@@ -27,7 +27,7 @@ pub struct SerializedState {
 
 impl SerializedState {
     pub fn from_node(pid: u64, node: sled::Node, seq: SeqNo) -> Self {
-        let sst_pairs = node.iter().map(|(key,value)| (IVec::from(key).to_vec(),IVec::from(value).to_vec())).collect::<Vec<_>>();
+        let sst_pairs = node.iter().map(|(key,value)| (IVec::from(key).to_vec(),value.to_vec())).collect::<Vec<_>>();
         let bytes = bincode::serialize(&sst_pairs).expect("failed to serialize");
         let mut hasher = blake3::Hasher::new();
 
@@ -275,25 +275,10 @@ impl DivisibleState for StateOrchestrator {
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {
         
                
-        let mut parts = self.updates.lock().expect("failed to lock");
-
-        if !parts.is_empty() {
-            println!("{:?}",parts.len());
-            let cur_seq = self.mk_tree.next_seqno();
-            let guard = pin();
-
-            for pid in parts.drain() {
-                if let Some(node) = self.get_page(pid, &guard) {
-                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
-                    self.mk_tree.insert_leaf(serialized_part.leaf);
-                } else {
-                    println!("part {:?} does not exist", &pid);
-                    self.mk_tree.leaves.remove(&pid);
-                }
-            }            
-            self.mk_tree.calculate_tree();
-        }
-
+  
+        self.mk_tree.calculate_tree();
+        
+        println!("finished st {:?}", self.get_descriptor());
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
         //self.mk_tree.calculate_tree();
