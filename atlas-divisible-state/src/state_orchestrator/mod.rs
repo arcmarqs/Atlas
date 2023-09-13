@@ -30,7 +30,9 @@ impl StateOrchestrator {
         .path(path);
 
         let db = conf.open().unwrap();
-        
+        for name in db.tree_names() {
+           let _ = db.drop_tree(name);
+        }
         let updates = Arc::new(Mutex::new(HashSet::default()));
         let subscriber = db.watch_prefix(vec![]);
 
