@@ -245,7 +245,7 @@ impl DivisibleState for StateOrchestrator {
             let guard = pin();
             for pid in parts_to_get {
                 if let Some(node) = self.get_page(pid, &guard) {
-                   // println!("pid {:?} {:?} {:?}", pid, node.rewrite_generations, node.iter().collect::<Vec<_>>());
+                   println!("pid {:?} {:?}", pid,node);
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                     state_parts.push(serialized_part);

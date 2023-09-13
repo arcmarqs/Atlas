@@ -174,7 +174,7 @@ impl StateTree {
             }   
         }
 
-        println!("peaks: {:?}", peaks);
+      //  println!("peaks: {:?}", peaks);
 
         self.root = self.bag_peaks(peaks);
     }
