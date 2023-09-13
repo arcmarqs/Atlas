@@ -243,8 +243,9 @@ impl DivisibleState for StateOrchestrator {
         if !parts.is_empty() {
             println!("{:?}",parts.len());
             let cur_seq = self.mk_tree.next_seqno();
+            let guard = pin();
+
             for pid in parts.drain() {
-                let guard = pin();
                 if let Some(node) = self.get_page(pid, &guard) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
@@ -277,8 +278,9 @@ impl DivisibleState for StateOrchestrator {
         if !parts.is_empty() {
             println!("{:?}",parts.len());
             let cur_seq = self.mk_tree.next_seqno();
+            let guard = pin();
+
             for pid in parts.drain() {
-                let guard = pin();
                 if let Some(node) = self.get_page(pid, &guard) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
