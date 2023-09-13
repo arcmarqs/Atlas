@@ -22,7 +22,7 @@ pub struct StateTree {
     //pub peaks: BTreeMap<u32, NodeRef>,
     pub root: Option<Digest>,
     // stores references to all leaves, ordered by the page id
-    pub leaves: BTreeMap<u64, Arc<LeafNode>>,
+    pub leaves: BTreeMap<u64, LeafNode>,
 }
 
 impl Default for StateTree {
@@ -46,10 +46,10 @@ impl StateTree {
         }
     }
 
-    pub fn insert_leaf(&mut self, leaf: Arc<LeafNode>) {
+    pub fn insert_leaf(&mut self, leaf: LeafNode) {
         self.seqno = self.seqno.max(leaf.seqno);
         let leaf_pid = leaf.get_pid();
-        if let Some(old) = self.leaves.insert(leaf_pid, leaf.clone()) {
+        if let Some(old) = self.leaves.insert(leaf_pid, leaf) {
             if old.get_digest() == leaf.digest {
                 //value already inserted, no need to continue
 
