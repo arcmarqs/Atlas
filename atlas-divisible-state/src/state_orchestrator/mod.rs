@@ -1,14 +1,12 @@
-use std::{
-    sync::{
+use std::sync::{
         Arc, Mutex
-    }, collections::BTreeSet,
-};
+    };
 
 use crate::{
     state_tree::StateTree,
     SerializedTree,
 };
-use atlas_common::async_runtime::spawn;
+use atlas_common::{async_runtime::spawn, collections::{HashSet, ConcurrentHashMap}};
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, EventType, Mode, Subscriber, Guard};
 
@@ -19,7 +17,7 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub updates: Arc<Mutex<BTreeSet<u64>>>,
+    pub updates: ConcurrentHashMap<u64,()>,
     #[serde(skip_serializing, skip_deserializing)]
     pub mk_tree: StateTree,
 }
@@ -31,7 +29,7 @@ impl StateOrchestrator {
         .path(path);
 
         let db = conf.open().unwrap();
-        let updates = Arc::new(Mutex::new(BTreeSet::new()));
+        let updates = ConcurrentHashMap::default();
         let subscriber = db.watch_prefix(vec![]);
 
         let ret = Self {
@@ -136,22 +134,19 @@ impl StateOrchestrator {
 
 }
 
-pub async fn monitor_changes(state: Arc<Mutex<BTreeSet<u64>>>, mut subscriber: Subscriber) {
+pub async fn monitor_changes(state: ConcurrentHashMap<u64,()>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
             EventType::Split { lhs, rhs } => {
-                let mut lock = state.lock().expect("failed to acquire lock");
-                lock.insert(lhs);
-                lock.insert(rhs);
+                state.insert(lhs,());
+                state.insert(rhs,());
             }
             EventType::Merge { lhs, rhs, ..} => {
-                let mut lock = state.lock().expect("failed to acquire lock");
-                lock.insert(lhs);
-                lock.insert(rhs);
+                state.insert(lhs,());
+                state.insert(rhs,());
             }
             EventType::Node(n) => {
-                let mut lock = state.lock().expect("failed to acquire lock");
-                lock.insert(n);
+                state.insert(n,());
             }
             _ => {}
         }

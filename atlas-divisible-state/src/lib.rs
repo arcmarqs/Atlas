@@ -235,29 +235,27 @@ impl DivisibleState for StateOrchestrator {
         let checkpoint_start = Instant::now();
        // let _ = self.db.flush();
      
-        let mut parts_to_get = self.updates.lock().expect("failed to aquire lock");
+        let parts_to_get = self.updates.iter().map(|r| r.key().clone() ).collect::<Vec<_>>();
+        self.updates.clear();
+
         let mut state_parts = Vec::new();
         println!("updated: {:?}",parts_to_get.len());
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
-            for pid in parts_to_get.iter() {
-                if let Some(node) = self.get_page(pid.clone(), &guard) {
-                    println!("pid {:?} {:?} {:?}", pid, node.rewrite_generations, node.iter().collect::<Vec<_>>());
-                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
+            for pid in parts_to_get {
+                if let Some(node) = self.get_page(pid, &guard) {
+                   // println!("pid {:?} {:?} {:?}", pid, node.rewrite_generations, node.iter().collect::<Vec<_>>());
+                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
                 } else {
                     println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
-            }
-            parts_to_get.clear();
-            
+            }            
             self.mk_tree.calculate_tree();
         }
-
-        drop(parts_to_get);
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
@@ -271,22 +269,22 @@ impl DivisibleState for StateOrchestrator {
 
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {
 
-        let mut parts_to_get = self.updates.lock().expect("failed to aquire lock");
+        let parts_to_get = self.updates.iter().map(|r| r.key().clone() ).collect::<Vec<_>>();
+        self.updates.clear();
+
 
         if !parts_to_get.is_empty() {
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
-            for pid in parts_to_get.iter() {
-                if let Some(node) = self.get_page(pid.clone(),&guard) {
-                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
+            for pid in parts_to_get {
+                if let Some(node) = self.get_page(pid,&guard) {
+                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                 } else {
                     println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
             }
-
-            parts_to_get.clear();
             
             self.mk_tree.calculate_tree();
         }
