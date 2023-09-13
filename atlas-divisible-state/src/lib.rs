@@ -234,15 +234,14 @@ impl DivisibleState for StateOrchestrator {
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
        // let _ = self.db.flush();
-        let parts_to_get = self.updates.iter().map(|r| r.key().clone() ).collect::<Vec<_>>();
-        self.updates.clear();
 
         let mut state_parts = Vec::new();
-        println!("updated: {:?}",parts_to_get.len());
-        if !parts_to_get.is_empty() {
+        
+        if !self.updates.is_empty() {
+            println!("{:?}", self.updates.len());
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
-            for pid in parts_to_get {
+            for pid in self.updates.iter().map(|r| r.key().clone()) {
                 if let Some(node) = self.get_page(pid, &guard) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
@@ -251,6 +250,7 @@ impl DivisibleState for StateOrchestrator {
                     println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
+                self.updates.remove(&pid);
             }            
             self.mk_tree.calculate_tree();
         }
@@ -265,24 +265,21 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {
-
-        let parts_to_get = self.updates.iter().map(|r| r.key().clone() ).collect::<Vec<_>>();
-        self.updates.clear();
-
-
-        if !parts_to_get.is_empty() {
+        
+        if !self.updates.is_empty() {
+            println!("{:?}", self.updates.len());
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
-            for pid in parts_to_get {
-                if let Some(node) = self.get_page(pid,&guard) {
+            for pid in self.updates.iter().map(|r| r.key().clone()) {
+                if let Some(node) = self.get_page(pid, &guard) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                 } else {
                     println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
-            }
-            
+                self.updates.remove(&pid);
+            }            
             self.mk_tree.calculate_tree();
         }
         
