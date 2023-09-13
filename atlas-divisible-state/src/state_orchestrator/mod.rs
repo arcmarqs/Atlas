@@ -6,7 +6,7 @@ use crate::{
     state_tree::StateTree,
     SerializedTree,
 };
-use atlas_common::{async_runtime::spawn, collections::ConcurrentHashMap};
+use atlas_common::{async_runtime::spawn, collections::{ConcurrentHashMap, HashSet}};
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, EventType, Mode, Subscriber, Guard};
 
@@ -17,7 +17,7 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub updates: Arc<ConcurrentHashMap<u64,()>>,
+    pub updates: Arc<Mutex<HashSet<u64>>>,
     #[serde(skip_serializing, skip_deserializing)]
     pub mk_tree: StateTree,
 }
@@ -30,7 +30,7 @@ impl StateOrchestrator {
         .path(path);
 
         let db = conf.open().unwrap();
-        let updates = Arc::new(ConcurrentHashMap::default());
+        let updates = Arc::new(Mutex::new(HashSet::default()));
         let subscriber = db.watch_prefix(vec![]);
 
         let ret = Self {
@@ -135,19 +135,17 @@ impl StateOrchestrator {
 
 }
 
-pub async fn monitor_changes(state: Arc<ConcurrentHashMap<u64,()>>, mut subscriber: Subscriber) {
+pub async fn monitor_changes(state: Arc<Mutex<HashSet<u64>>>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
-            EventType::Split { lhs, rhs } => {
-                state.insert(lhs,());
-                state.insert(rhs,());
-            }
-            EventType::Merge { lhs, rhs, ..} => {
-                state.insert(lhs,());
-                state.insert(rhs,());
+            EventType::Split { lhs, rhs } | EventType::Merge { lhs, rhs, ..} => {
+                let mut lock = state.lock().expect("failed to lock");
+                lock.insert(lhs);
+                lock.insert(rhs);
             }
             EventType::Node(n) => {
-                state.insert(n,());
+                let mut lock = state.lock().expect("failed to lock");
+                lock.insert(n);
             }
             _ => {}
         }

@@ -233,16 +233,15 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
-        let _ = self.db.flush();
 
         let mut state_parts = Vec::new();
         
-        if !self.updates.is_empty() {
-            println!("{:?}", self.updates.len());
-            let parts_to_get = self.updates.iter().map(|r| r.key().clone()).collect::<Vec<_>>();
-            self.updates.clear();
+        let mut parts = self.updates.lock().expect("failed to lock");
+
+        if !parts.is_empty() {
+            println!("{:?}",parts.len());
             let cur_seq = self.mk_tree.next_seqno();
-            for pid in parts_to_get {
+            for pid in parts.drain() {
                 let guard = pin();
                 if let Some(node) = self.get_page(pid, &guard) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
@@ -270,12 +269,13 @@ impl DivisibleState for StateOrchestrator {
 
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {
         
-        if !self.updates.is_empty() {
-            println!("{:?}", self.updates.len());
-            let parts_to_get = self.updates.iter().map(|r| r.key().clone()).collect::<Vec<_>>();
-            self.updates.clear();
+               
+        let mut parts = self.updates.lock().expect("failed to lock");
+
+        if !parts.is_empty() {
+            println!("{:?}",parts.len());
             let cur_seq = self.mk_tree.next_seqno();
-            for pid in parts_to_get {
+            for pid in parts.drain() {
                 let guard = pin();
                 if let Some(node) = self.get_page(pid, &guard) {
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
@@ -287,6 +287,7 @@ impl DivisibleState for StateOrchestrator {
             }            
             self.mk_tree.calculate_tree();
         }
+
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
         //self.mk_tree.calculate_tree();
