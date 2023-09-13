@@ -234,7 +234,7 @@ impl DivisibleState for StateOrchestrator {
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
        // let _ = self.db.flush();
-     
+        println!("db before {:?} end", self.db);
         let parts_to_get = self.updates.iter().map(|r| r.key().clone() ).collect::<Vec<_>>();
         self.updates.clear();
 
@@ -245,7 +245,6 @@ impl DivisibleState for StateOrchestrator {
             let guard = pin();
             for pid in parts_to_get {
                 if let Some(node) = self.get_page(pid, &guard) {
-                   println!("pid {:?} {:?}", pid,node);
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                     state_parts.push(serialized_part);
@@ -256,6 +255,7 @@ impl DivisibleState for StateOrchestrator {
             }            
             self.mk_tree.calculate_tree();
         }
+        println!("db after {:?} end", self.db);
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
