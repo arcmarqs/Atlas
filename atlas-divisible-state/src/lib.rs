@@ -269,7 +269,7 @@ impl DivisibleState for StateOrchestrator {
                 hasher.update(v);
             }
         }
-        println!("contents {:?}", hasher.finalize().as_bytes());
+        println!("contents {:?}", Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
