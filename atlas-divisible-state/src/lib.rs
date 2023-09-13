@@ -29,17 +29,17 @@ pub struct SerializedState {
 impl SerializedState {
     pub fn from_node(pid: u64, node: sled::Node, seq: SeqNo) -> Self {
         let bytes = sled_serialize::serialize(&node);
-       // let mut hasher = blake3::Hasher::new();
+        let mut hasher = blake3::Hasher::new();
 
         //hasher.update(&pid.to_be_bytes());
-        //hasher.update(bytes.as_slice());
+        hasher.update(bytes.as_slice());
 
         Self {
             bytes,
             leaf: LeafNode::new(
                 seq,
                 pid,
-                Digest::from_bytes(&node.hash()).unwrap(),
+                Digest::from_bytes(hasher.finalize().as_bytes()).unwrap(),
             ),
         }
     }
@@ -243,6 +243,7 @@ impl DivisibleState for StateOrchestrator {
             let guard = pin();
             for pid in parts_to_get.iter() {
                 if let Some(node) = self.get_page(pid.clone(), &guard) {
+                    println!("pid {:?} {:?} {:?}", pid, node.rewrite_generations, node.iter().collect::<Vec<_>>());
                     let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(Arc::new(serialized_part.leaf));
                     state_parts.push(serialized_part);
@@ -258,7 +259,6 @@ impl DivisibleState for StateOrchestrator {
 
         drop(parts_to_get);
 
-        println!("{:?}", self.mk_tree.leaves);
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
