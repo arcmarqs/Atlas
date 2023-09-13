@@ -265,7 +265,17 @@ impl DivisibleState for StateOrchestrator {
         println!("tree {:?}",self.db.checksum());
         let mut hasher = blake3::Hasher::new();
         for node in nodes {
-            for (k,v) in node.iter() {
+            for (k,v) in node.overlay.iter() {
+                hasher.update(k.as_ref());
+                match v {
+                    Some(val) => {
+                        hasher.update(val.as_ref());
+                    },
+                    None => (),
+                }
+                
+            }
+            for (k,v) in node.inner.iter() {
                 hasher.update(IVec::from(k).as_ref());
                 hasher.update(v);
             }
