@@ -234,8 +234,6 @@ impl DivisibleState for StateOrchestrator {
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
 
-        let checksum = self.db.checksum();
-        println!("tree checksum {:?}", checksum);
         let mut state_parts = Vec::new();
         
         let mut parts = self.updates.lock().expect("failed to lock");
