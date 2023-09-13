@@ -219,14 +219,15 @@ impl DivisibleState for StateOrchestrator {
 
         for part in parts {
             let pairs = part.to_pairs();
-            let mut batch = sled::Batch::default();
+            let mut batch = sled::Batch::default();            
+            self.mk_tree.insert_leaf(part.leaf);
+
             for (k,v) in pairs {
               batch.insert(k, v); 
             }
 
             self.db.apply_batch(batch).expect("failed to apply batch");
           
-            //self.mk_tree.insert_leaf(Arc::new(part.leaf));
         }
         //let _ = self.db.flush();
 
