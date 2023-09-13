@@ -250,10 +250,13 @@ impl DivisibleState for StateOrchestrator {
                     println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
-                self.updates.remove(&pid);
             }            
             self.mk_tree.calculate_tree();
         }
+
+        self.updates.clear();
+
+
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
@@ -278,12 +281,11 @@ impl DivisibleState for StateOrchestrator {
                     println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
-                self.updates.remove(&pid);
             }            
             self.mk_tree.calculate_tree();
         }
         
-        
+        self.updates.clear();
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
         //self.mk_tree.calculate_tree();
