@@ -240,7 +240,7 @@ impl DivisibleState for StateOrchestrator {
         let checkpoint_start = Instant::now();
 
         let mut state_parts = Vec::new();
-        
+        let mut nodes = Vec::new();
         let mut parts = self.updates.lock().expect("failed to lock");
 
         if !parts.is_empty() {
@@ -250,6 +250,7 @@ impl DivisibleState for StateOrchestrator {
 
             for pid in parts.drain() {
                 if let Some(node) = self.get_page(pid, &guard) {
+                    nodes.push(node.clone());
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                     state_parts.push(serialized_part);
@@ -261,7 +262,14 @@ impl DivisibleState for StateOrchestrator {
             self.mk_tree.calculate_tree();
         }
 
-
+        let mut hasher = blake3::Hasher::new();
+        for node in nodes {
+            for (k,v) in node.iter() {
+                hasher.update(IVec::from(k).as_ref());
+                hasher.update(v);
+            }
+        }
+        println!("contents {:?}", hasher.finalize().as_bytes());
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
@@ -277,7 +285,7 @@ impl DivisibleState for StateOrchestrator {
         
                
   
-        let mut parts = self.updates.lock().expect("failed to lock");
+       let mut parts = self.updates.lock().expect("failed to lock");
 
         if !parts.is_empty() {
             println!("{:?}",parts.len());
