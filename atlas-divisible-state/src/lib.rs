@@ -261,9 +261,17 @@ impl DivisibleState for StateOrchestrator {
             }            
             self.mk_tree.calculate_tree();
         }
-
-        println!("tree {:?}",self.db.checksum());
         let mut hasher = blake3::Hasher::new();
+
+      for kv in self.db.iter() {
+            let (k, v) = kv.unwrap();
+            hasher.update(&k);
+            hasher.update(&v);
+        } 
+
+        println!("tree {:?}",Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
+
+        hasher.reset();
         for node in nodes {
             for (k,v) in node.overlay.iter() {
                 hasher.update(k.as_ref());
