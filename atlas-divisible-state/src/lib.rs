@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Instant;
 
 use atlas_common::error::ResultWrappedExt;
@@ -9,7 +8,7 @@ use atlas_execution::state::divisible_state::{
 };
 use atlas_metrics::metrics::metric_duration;
 use serde::{Deserialize, Serialize};
-use sled::Serialize as sled_serialize;
+use sled::{Serialize as sled_serialize, IVec};
 use sled::pin;
 use state_orchestrator::StateOrchestrator;
 use state_tree::{LeafNode,StateTree};
@@ -28,7 +27,8 @@ pub struct SerializedState {
 
 impl SerializedState {
     pub fn from_node(pid: u64, node: sled::Node, seq: SeqNo) -> Self {
-        let bytes = sled_serialize::serialize(&node);
+        let sst_pairs = node.iter().map(|(key,value)| (IVec::from(key).to_vec(),IVec::from(value).to_vec())).collect::<Vec<_>>();
+        let bytes = bincode::serialize(&sst_pairs).expect("failed to serialize");
         let mut hasher = blake3::Hasher::new();
 
         //hasher.update(&pid.to_be_bytes());
@@ -44,8 +44,10 @@ impl SerializedState {
         }
     }
 
-    pub fn to_node(&self) -> sled::Node {
-        sled_serialize::deserialize(&mut self.bytes.as_slice()).unwrap()
+    pub fn to_pairs(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let sst_pairs: Vec<(Vec<u8>,Vec<u8>)> = bincode::deserialize(&self.bytes).expect("failed to deserialize");
+
+        sst_pairs
     }
 
     pub fn hash(&self) -> Digest {
@@ -216,12 +218,14 @@ impl DivisibleState for StateOrchestrator {
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
 
         for part in parts {
-            let node = part.to_node();
-
-            if let Err(_) = self.db.import_node(part.leaf.pid, node) {
-                panic!("Failed to import Page");
+            let pairs = part.to_pairs();
+            let mut batch = sled::Batch::default();
+            for (k,v) in pairs {
+              batch.insert(k, v); 
             }
 
+            self.db.apply_batch(batch).expect("failed to apply batch");
+          
             //self.mk_tree.insert_leaf(Arc::new(part.leaf));
         }
         //let _ = self.db.flush();

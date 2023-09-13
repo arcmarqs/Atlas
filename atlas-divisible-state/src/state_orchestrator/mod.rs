@@ -8,7 +8,7 @@ use crate::{
 };
 use atlas_common::{async_runtime::spawn, collections::{ConcurrentHashMap, HashSet}};
 use serde::{Deserialize, Serialize};
-use sled::{Config, Db, EventType, Mode, Subscriber, Guard};
+use sled::{Config, Db, EventType, Mode, Subscriber, Guard, IVec};
 
 
  
@@ -30,6 +30,7 @@ impl StateOrchestrator {
         .path(path);
 
         let db = conf.open().unwrap();
+        
         let updates = Arc::new(Mutex::new(HashSet::default()));
         let subscriber = db.watch_prefix(vec![]);
 
