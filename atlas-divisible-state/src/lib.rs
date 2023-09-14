@@ -277,25 +277,44 @@ impl DivisibleState for StateOrchestrator {
 
         hasher.reset();
 
+        
         for (pid,node) in nodes {
-            for (k,v) in node.overlay.iter() {
-                hasher.update(k.as_ref());
-                match v {
-                    Some(val) => {
-                        hasher.update(val.as_ref());
-                    },
-                    None => (),
+
+            let lo = match node.overlay.get_min().map(|(k,v )| k) {
+                Some(key) => {
+                    IVec::from(node.inner.lo()).min(key.clone())
+                },
+                None => IVec::from(node.inner.lo()),
+            };
+
+            let hi = match node.overlay.get_max().map(|(k,v )| k) {
+                Some(key) => {
+                    match node.inner.hi().map(|k| IVec::from(k)) {
+                        Some(sst_key) => {
+                            Some(sst_key.max(key.clone()))
+                        },
+                        None => Some(key.clone()),
+                    }
+                },
+                None =>  node.inner.hi().map(|k| IVec::from(k)),
+            };
+            if hi.is_some() {
+                for res in self.db.range(lo..hi.unwrap()) {
+                    let (k,v) = res.unwrap();
+                    hasher.update(&k);
+                    hasher.update(&v);
                 }
-                
+            } else {
+                println!("no hi");
+                for res in self.db.range(lo..) {
+                    let (k,v) = res.unwrap();
+                    hasher.update(&k);
+                    hasher.update(&v);
+                }
             }
-            println!(" pid {:?} overlay hash {:?}", pid, Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
-
-            for (k,v) in node.inner.iter() {
-                hasher.update(IVec::from(k).as_ref());
-                hasher.update(v);
-            }
-
+       
             println!("pid {:?} sst hash {:?}",pid,  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
+            
         }
 
         println!("contents {:?}", Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
