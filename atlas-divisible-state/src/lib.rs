@@ -276,20 +276,30 @@ impl DivisibleState for StateOrchestrator {
         println!("tree {:?}",Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
 
         hasher.reset();
+        let mut low = self.db.first().unwrap().unwrap().0;
+        let mut hi = self.db.last().unwrap().unwrap().0;
 
-        
         for (pid,node) in nodes {
 
           for (k,v) in node.iter() {
-            hasher.update(&IVec::from(k));
+            let key = IVec::from(k);
+            low = low.min(key.clone());
+            hi = hi.max(key.clone());
+            hasher.update(&key);
             hasher.update(v);
           }
        
-            println!("pid {:?} sst hash {:?}",pid,  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
-            
+            println!("pid {:?} nodekv hash {:?}",pid,  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
+            hasher.reset();
         }
 
-        println!("contents {:?}", Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
+        for kv in self.db.range(low..hi) {
+            let (k, v) = kv.unwrap();
+            hasher.update(&k);
+            hasher.update(&v);
+        } 
+
+        println!("kvrange hash {:?}", Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
