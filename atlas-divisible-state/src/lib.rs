@@ -238,7 +238,7 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
-
+       
         let mut state_parts = Vec::new();
         let mut nodes = Vec::new();
         let mut parts = self.updates.lock().expect("failed to lock");
@@ -248,10 +248,10 @@ impl DivisibleState for StateOrchestrator {
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
 
-            for (pid,_) in parts.drain() {
-                if let Some(node) = self.get_page(pid, &guard) {
+            for pid in parts.iter() {
+                if let Some(node) = self.get_page(pid.clone(), &guard) {
                     nodes.push((pid,node.clone()));
-                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                     state_parts.push(serialized_part);
                 } else {
@@ -265,6 +265,7 @@ impl DivisibleState for StateOrchestrator {
         }
 
         drop(parts);
+
         let mut hasher = blake3::Hasher::new();
 
       for kv in self.db.iter() {
@@ -276,8 +277,8 @@ impl DivisibleState for StateOrchestrator {
         println!("tree {:?}",Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
 
         hasher.reset();
-        let mut low = self.db.first().unwrap().unwrap().0;
-        let mut hi = self.db.last().unwrap().unwrap().0;
+        let mut low = self.db.last().unwrap().unwrap().0;
+        let mut hi = self.db.first().unwrap().unwrap().0;
 
         for (pid,node) in nodes {
 
@@ -322,15 +323,16 @@ impl DivisibleState for StateOrchestrator {
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
 
-            for (pid,_) in parts.drain() {
-                if let Some(node) = self.get_page(pid, &guard) {
-                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+            for pid in parts.iter() {
+                if let Some(node) = self.get_page(pid.clone(), &guard) {
+                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                 } else {
                     println!("part {:?} does not exist", &pid);
                     self.mk_tree.leaves.remove(&pid);
                 }
             }            
+            parts.clear();
             self.mk_tree.calculate_tree();
         }
         
