@@ -248,10 +248,10 @@ impl DivisibleState for StateOrchestrator {
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
 
-            for pid in parts.iter() {
-                if let Some(node) = self.get_page(pid.clone(), &guard) {
+            for (pid,_) in parts.drain() {
+                if let Some(node) = self.get_page(pid, &guard) {
                     nodes.push(node.clone());
-                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
+                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                     state_parts.push(serialized_part);
                 } else {
@@ -276,6 +276,7 @@ impl DivisibleState for StateOrchestrator {
         println!("tree {:?}",Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
 
         hasher.reset();
+
         for node in nodes {
             for (k,v) in node.overlay.iter() {
                 hasher.update(k.as_ref());
@@ -287,11 +288,16 @@ impl DivisibleState for StateOrchestrator {
                 }
                 
             }
+            println!("overlay hash {:?}",  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
+
             for (k,v) in node.inner.iter() {
                 hasher.update(IVec::from(k).as_ref());
                 hasher.update(v);
             }
+
+            println!("sst hash {:?}",  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
         }
+        
         println!("contents {:?}", Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
@@ -315,9 +321,9 @@ impl DivisibleState for StateOrchestrator {
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
 
-            for pid in parts.iter() {
-                if let Some(node) = self.get_page(pid.clone(), &guard) {
-                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
+            for (pid,_) in parts.drain() {
+                if let Some(node) = self.get_page(pid, &guard) {
+                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                 } else {
                     println!("part {:?} does not exist", &pid);
@@ -325,7 +331,6 @@ impl DivisibleState for StateOrchestrator {
                 }
             }            
             self.mk_tree.calculate_tree();
-            parts.clear();
         }
         
         drop(parts);

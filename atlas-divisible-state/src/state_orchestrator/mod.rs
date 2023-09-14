@@ -6,7 +6,7 @@ use crate::{
     state_tree::StateTree,
     SerializedTree,
 };
-use atlas_common::{async_runtime::spawn, collections::{ConcurrentHashMap, HashSet}};
+use atlas_common::{async_runtime::spawn, collections::{ConcurrentHashMap, HashSet, OrderedMap}};
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, EventType, Mode, Subscriber, Guard, IVec};
 
@@ -17,7 +17,7 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub updates: Arc<Mutex<BTreeSet<u64>>>,
+    pub updates: Arc<Mutex<OrderedMap<u64,()>>>,
     #[serde(skip_serializing, skip_deserializing)]
     pub mk_tree: StateTree,
 }
@@ -33,7 +33,7 @@ impl StateOrchestrator {
         for name in db.tree_names() {
            let _ = db.drop_tree(name);
         }
-        let updates = Arc::new(Mutex::new(BTreeSet::default()));
+        let updates = Arc::new(Mutex::new(OrderedMap::default()));
         let subscriber = db.watch_prefix(vec![]);
 
         let ret = Self {
@@ -138,17 +138,17 @@ impl StateOrchestrator {
 
 }
 
-pub async fn monitor_changes(state: Arc<Mutex<BTreeSet<u64>>>, mut subscriber: Subscriber) {
+pub async fn monitor_changes(state: Arc<Mutex<OrderedMap<u64,()>>>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
             EventType::Split { lhs, rhs } | EventType::Merge { lhs, rhs, ..} => {
                 let mut lock = state.lock().expect("failed to lock");
-                lock.insert(lhs);
-                lock.insert(rhs);
+                lock.insert(lhs,());
+                lock.insert(rhs,());
             }
             EventType::Node(n) => {
                 let mut lock = state.lock().expect("failed to lock");
-                lock.insert(n);
+                lock.insert(n,());
             }
             _ => {}
         }
