@@ -250,7 +250,7 @@ impl DivisibleState for StateOrchestrator {
 
             for (pid,_) in parts.drain() {
                 if let Some(node) = self.get_page(pid, &guard) {
-                    nodes.push(node.clone());
+                    nodes.push((pid,node.clone()));
                     let serialized_part = SerializedState::from_node(pid, node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                     state_parts.push(serialized_part);
@@ -277,7 +277,7 @@ impl DivisibleState for StateOrchestrator {
 
         hasher.reset();
 
-        for node in nodes {
+        for (pid,node) in nodes {
             for (k,v) in node.overlay.iter() {
                 hasher.update(k.as_ref());
                 match v {
@@ -288,16 +288,16 @@ impl DivisibleState for StateOrchestrator {
                 }
                 
             }
-            println!("overlay hash {:?}",  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
+            println!(" pid {:?} overlay hash {:?}", pid, Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
 
             for (k,v) in node.inner.iter() {
                 hasher.update(IVec::from(k).as_ref());
                 hasher.update(v);
             }
 
-            println!("sst hash {:?}",  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
+            println!("pid {:?} sst hash {:?}",pid,  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
         }
-        
+
         println!("contents {:?}", Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
