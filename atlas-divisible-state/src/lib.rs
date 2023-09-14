@@ -278,20 +278,17 @@ impl DivisibleState for StateOrchestrator {
         hasher.reset();
         let mut low = self.db.last().unwrap().unwrap().0;
         let mut hi = self.db.first().unwrap().unwrap().0;
-
+        println!("initial range {:?} {:?}", low, hi);
         for (pid,node) in nodes {
 
           for (k,v) in node.iter() {
             let key = IVec::from(k);
             low = low.min(key.clone());
             hi = hi.max(key.clone());
-            hasher.update(&key);
-            hasher.update(v);
           }
-       
-            println!("pid {:?} nodekv hash {:?}",pid,  Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
-            hasher.reset();
+    
         }
+        println!("final range {:?} {:?}", low, hi);
 
         for kv in self.db.range(low..hi) {
             let (k, v) = kv.unwrap();
