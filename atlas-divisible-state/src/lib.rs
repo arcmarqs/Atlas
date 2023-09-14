@@ -283,8 +283,13 @@ impl DivisibleState for StateOrchestrator {
 
           for (k,v) in node.iter() {
             let key = IVec::from(k);
-            low = low.min(key.clone());
-            hi = hi.max(key.clone());
+            if key < low {
+                low = low.min(key.clone());
+                println!("pid {:?} new low {:?}",pid, low);
+            } else if key > hi {
+                hi = hi.max(key.clone());
+                println!("pid {:?} new hi {:?}", pid, hi);
+            }
           }
     
         }
