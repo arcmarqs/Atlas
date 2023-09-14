@@ -141,16 +141,25 @@ impl StateOrchestrator {
 pub async fn monitor_changes(state: Arc<Mutex<OrderedMap<u64,()>>>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
-            EventType::Split { lhs, rhs } | EventType::Merge { lhs, rhs, ..} => {
+            EventType::Split { lhs, rhs, parent } => {
                 let mut lock = state.lock().expect("failed to lock");
                 lock.insert(lhs,());
                 lock.insert(rhs,());
-            }
+                lock.insert(parent,());
+            },
+            EventType::Merge { lhs, rhs, ..} => {
+                let mut lock = state.lock().expect("failed to lock");
+                lock.insert(lhs,());
+                lock.insert(rhs,());
+            },
             EventType::Node(n) => {
                 let mut lock = state.lock().expect("failed to lock");
                 lock.insert(n,());
-            }
-            _ => {}
+            },
+           /*  EventType::Update(event) => {
+                let keys = event.iter().map(|(t,k,v)| k).collect::<Vec<_>>();
+            }*/
+            _ => ()
         }
     }
 }
