@@ -250,7 +250,7 @@ impl DivisibleState for StateOrchestrator {
 
             for pid in parts.iter() {
                 if let Some(node) = self.get_page(pid.clone(), &guard) {
-                    nodes.push((pid,node.clone()));
+                    nodes.push((pid.clone(),node.clone()));
                     let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                     state_parts.push(serialized_part);
@@ -265,7 +265,6 @@ impl DivisibleState for StateOrchestrator {
         }
 
         drop(parts);
-
         let mut hasher = blake3::Hasher::new();
 
       for kv in self.db.iter() {
@@ -312,10 +311,7 @@ impl DivisibleState for StateOrchestrator {
         Ok(self.mk_tree.get_seqno())
     }
 
-    fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {
-        
-               
-  
+    fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {           
        let mut parts = self.updates.lock().expect("failed to lock");
 
         if !parts.is_empty() {
