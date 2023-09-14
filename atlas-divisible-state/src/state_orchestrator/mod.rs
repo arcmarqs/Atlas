@@ -1,6 +1,6 @@
-use std::sync::{
+use std::{sync::{
         Arc, Mutex
-    };
+    }, collections::BTreeSet};
 
 use crate::{
     state_tree::StateTree,
@@ -17,7 +17,7 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub updates: Arc<Mutex<HashSet<u64>>>,
+    pub updates: Arc<Mutex<BTreeSet<u64>>>,
     #[serde(skip_serializing, skip_deserializing)]
     pub mk_tree: StateTree,
 }
@@ -33,7 +33,7 @@ impl StateOrchestrator {
         for name in db.tree_names() {
            let _ = db.drop_tree(name);
         }
-        let updates = Arc::new(Mutex::new(HashSet::default()));
+        let updates = Arc::new(Mutex::new(BTreeSet::default()));
         let subscriber = db.watch_prefix(vec![]);
 
         let ret = Self {
@@ -138,7 +138,7 @@ impl StateOrchestrator {
 
 }
 
-pub async fn monitor_changes(state: Arc<Mutex<HashSet<u64>>>, mut subscriber: Subscriber) {
+pub async fn monitor_changes(state: Arc<Mutex<BTreeSet<u64>>>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
             EventType::Split { lhs, rhs } | EventType::Merge { lhs, rhs, ..} => {

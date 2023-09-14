@@ -248,10 +248,10 @@ impl DivisibleState for StateOrchestrator {
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
 
-            for pid in parts.drain() {
-                if let Some(node) = self.get_page(pid, &guard) {
+            for pid in parts.iter() {
+                if let Some(node) = self.get_page(pid.clone(), &guard) {
                     nodes.push(node.clone());
-                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                     state_parts.push(serialized_part);
                 } else {
@@ -260,7 +260,11 @@ impl DivisibleState for StateOrchestrator {
                 }
             }            
             self.mk_tree.calculate_tree();
+
+            parts.clear();
         }
+
+        drop(parts);
         let mut hasher = blake3::Hasher::new();
 
       for kv in self.db.iter() {
@@ -311,9 +315,9 @@ impl DivisibleState for StateOrchestrator {
             let cur_seq = self.mk_tree.next_seqno();
             let guard = pin();
 
-            for pid in parts.drain() {
-                if let Some(node) = self.get_page(pid, &guard) {
-                    let serialized_part = SerializedState::from_node(pid, node, cur_seq);
+            for pid in parts.iter() {
+                if let Some(node) = self.get_page(pid.clone(), &guard) {
+                    let serialized_part = SerializedState::from_node(pid.clone(), node, cur_seq);
                     self.mk_tree.insert_leaf(serialized_part.leaf);
                 } else {
                     println!("part {:?} does not exist", &pid);
@@ -321,8 +325,10 @@ impl DivisibleState for StateOrchestrator {
                 }
             }            
             self.mk_tree.calculate_tree();
+            parts.clear();
         }
         
+        drop(parts);
         println!("finished st {:?}", self.get_descriptor());
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
 
