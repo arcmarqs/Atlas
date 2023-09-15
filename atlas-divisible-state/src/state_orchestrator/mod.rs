@@ -1,6 +1,6 @@
 use std::{sync::{
-        Arc, Mutex
-    }, collections::BTreeSet};
+        Arc, Mutex, atomic::{AtomicI32, AtomicUsize}
+    }, collections::{BTreeSet, BTreeMap, btree_set::Iter}};
 
 use crate::{
     state_tree::StateTree,
@@ -10,6 +10,81 @@ use atlas_common::{async_runtime::spawn, collections::{ConcurrentHashMap, HashSe
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, EventType, Mode, Subscriber, Guard, IVec};
 
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
+pub struct Prefix(pub Vec<u8>);
+
+impl Prefix {
+    pub fn new(prefix: Vec<u8>) -> Prefix {
+        Self(prefix)
+    }
+    pub fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+
+    pub fn truncate(&self, len: usize) -> Prefix{
+        Prefix(self.0[..len].to_vec())
+    }
+}
+// A bitmap that registers changed prefixes over a set of keys
+#[derive(Debug,Default,Clone)]
+pub struct PrefixSet {
+    prefix_len: usize,
+    prefixes: BTreeSet<Prefix>,
+}
+
+impl PrefixSet {
+    pub fn new() -> PrefixSet {
+        Self { 
+            prefix_len: 0, 
+            prefixes: BTreeSet::default(), 
+        }
+    }
+
+    pub fn insert(&mut self, key: Vec<u8>) {
+
+        // if a prefix corresponds to a full key we can simply use the full key
+        if self.prefixes.is_empty() {
+            let prefix = Prefix::new(key.to_vec());
+            self.prefix_len = prefix.0.len();
+            self.prefixes.insert(prefix);
+        } else {
+            let prefix = Prefix::new(key.iter().take(self.prefix_len).map(|b| b.clone()).collect::<Vec<_>>());
+            self.prefixes.insert(prefix);
+        }
+
+        if self.prefixes.len() >= 512 {
+            println!("merging");
+            self.merge_prefixes();
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.prefixes.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.prefixes.len()
+    }
+
+    pub fn iter(&self) -> Iter<'_, Prefix> {
+        self.prefixes.iter()
+    }
+
+    pub fn clear(&mut self) {
+        self.prefixes.clear();
+        self.prefix_len = 0;
+    }
+
+    fn merge_prefixes(&mut self) {
+        self.prefix_len -= 1;
+        let mut new_set: BTreeSet<Prefix> = BTreeSet::new();
+        for prefix in self.prefixes.iter() {
+            new_set.insert(prefix.truncate(self.prefix_len));
+        }
+
+        self.prefixes = new_set;
+    }
+}
 
  
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +92,7 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub updates: Arc<Mutex<BTreeSet<u64>>>,
+    pub updates: Arc<Mutex<PrefixSet>>,
     #[serde(skip_serializing, skip_deserializing)]
     pub mk_tree: StateTree,
 }
@@ -33,7 +108,7 @@ impl StateOrchestrator {
         for name in db.tree_names() {
            let _ = db.drop_tree(name);
         }
-        let updates = Arc::new(Mutex::new(BTreeSet::default()));
+        let updates = Arc::new(Mutex::new(PrefixSet::default()));
         let subscriber = db.watch_prefix(vec![]);
 
         let ret = Self {
@@ -54,7 +129,7 @@ impl StateOrchestrator {
         self.db.watch_prefix(vec![])
     }
 
-    pub fn insert(&self, key: String, value: String) {
+    pub fn insert(&self, key: Vec<u8>, value: Vec<u8>) {
         self.db.insert(key, value);
     }
 
@@ -138,10 +213,10 @@ impl StateOrchestrator {
 
 }
 
-pub async fn monitor_changes(state: Arc<Mutex<BTreeSet<u64>>>, mut subscriber: Subscriber) {
+pub async fn monitor_changes(state: Arc<Mutex<PrefixSet>>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
-            EventType::Split { lhs, rhs, parent } => {
+           /* EventType::Split { lhs, rhs, parent } => {
                 let mut lock = state.lock().expect("failed to lock");
                 lock.insert(lhs);
                 lock.insert(rhs);
@@ -155,10 +230,13 @@ pub async fn monitor_changes(state: Arc<Mutex<BTreeSet<u64>>>, mut subscriber: S
             EventType::Node(n) => {
                 let mut lock = state.lock().expect("failed to lock");
                 lock.insert(n);
-            },
-           /*  EventType::Update(event) => {
-                let keys = event.iter().map(|(t,k,v)| k).collect::<Vec<_>>();
-            }*/
+            }, */
+             EventType::Update(event) => {
+                let mut lock = state.lock().expect("failed to lock");
+                for (_,k,_) in event.iter() {
+                    lock.insert(k.to_vec());
+                }
+            }
             _ => ()
         }
     }
