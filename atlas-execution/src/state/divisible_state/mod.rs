@@ -51,7 +51,7 @@ pub trait StatePart<S: DivisibleState + ?Sized> {
 
     fn hash(&self) -> Digest;
 
-    fn id(&self) -> u64;
+    fn id(&self) -> Vec<u8>;
 
     fn length(&self) -> usize;
 
@@ -60,7 +60,7 @@ pub trait StatePart<S: DivisibleState + ?Sized> {
 }
 
 pub trait PartDescription {
-    fn id(&self) -> &u64;
+    fn id(&self) -> &Vec<u8>;
 }
 
 ///

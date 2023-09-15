@@ -27,7 +27,7 @@ pub struct SerializedState {
 }
 
 impl SerializedState {
-    pub fn from_node(pid: u64, node: sled::Node, seq: SeqNo) -> Self {
+  /*   pub fn from_node(pid: u64, node: sled::Node, seq: SeqNo) -> Self {
         let sst_pairs = node.iter().map(|(key,value)| (IVec::from(key).to_vec(),value.to_vec())).collect::<Vec<_>>();
         let bytes = bincode::serialize(&sst_pairs).expect("failed to serialize");
         let mut hasher = blake3::Hasher::new();
@@ -43,9 +43,9 @@ impl SerializedState {
                 Digest::from_bytes(hasher.finalize().as_bytes()).unwrap(),
             ),
         }
-    }
+    }*/
 
-    pub fn from_prefix(id: u64, kv_iter: Iter, seq: SeqNo) -> Self {
+    pub fn from_prefix(prefix: Vec<u8>, kv_iter: Iter, seq: SeqNo) -> Self {
         let mut hasher = blake3::Hasher::new();
         let kv_pairs = kv_iter
             .map(|kv| kv.map(|(k, v)| (k.to_vec(), v.to_vec())).expect("fail"))
@@ -61,7 +61,7 @@ impl SerializedState {
             bytes,
             leaf: LeafNode::new(
                 seq,
-                id,
+                prefix,
                 Digest::from_bytes(hasher.finalize().as_bytes()).unwrap(),
             ),
         }
@@ -88,8 +88,8 @@ impl StatePart<StateOrchestrator> for SerializedState {
         &self.leaf
     }
 
-    fn id(&self) -> u64 {
-        self.leaf.pid
+    fn id(&self) -> Vec<u8> {
+        self.leaf.pid.clone()
     }
 
     fn length(&self) -> usize {
@@ -158,7 +158,7 @@ impl StateTree {
             let mut vec = Vec::new();
 
             for (_, node) in self.leaves.iter() {
-                vec.push(*node);
+                vec.push(node.clone());
             }
             vec
         };
@@ -218,7 +218,7 @@ impl PartId for LeafNode {
 }
 
 impl PartDescription for LeafNode {
-    fn id(&self) -> &u64 {
+    fn id(&self) -> &Vec<u8> {
         &self.pid
     }
 }
@@ -270,16 +270,16 @@ impl DivisibleState for StateOrchestrator {
             let len = parts.len();
             println!("{:?}",len);
             let cur_seq = self.mk_tree.next_seqno();
-            for (id,prefix) in parts.iter().enumerate() {
+            for prefix in parts.iter() {
                 let mut kv_pairs = self.db.scan_prefix(prefix.as_ref());
                     for kv in kv_pairs.by_ref() {
                         let (k,v) = kv.expect("fail");
                         hasher.update(&k);
                         hasher.update(&v);
                     }
-                let serialized_part = SerializedState::from_prefix(id as u64,kv_pairs, cur_seq);       
+                let serialized_part = SerializedState::from_prefix(prefix.0.clone(),kv_pairs, cur_seq); 
+                state_parts.push(serialized_part.clone());      
                 self.mk_tree.insert_leaf(serialized_part.leaf);
-                state_parts.push(serialized_part);
             }            
 
             self.mk_tree.calculate_tree();
@@ -290,6 +290,7 @@ impl DivisibleState for StateOrchestrator {
 
         println!("prefix digest {:?}", Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
         hasher.reset();
+
         for kv in self.db.iter() {
             let (k,v) = kv.expect("fail");
             hasher.update(&k);

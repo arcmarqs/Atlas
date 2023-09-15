@@ -22,7 +22,7 @@ pub struct StateTree {
     //pub peaks: BTreeMap<u32, NodeRef>,
     pub root: Option<Digest>,
     // stores references to all leaves, ordered by the page id
-    pub leaves: BTreeMap<u64, LeafNode>,
+    pub leaves: BTreeMap<Vec<u8>, LeafNode>,
 }
 
 impl Default for StateTree {
@@ -378,10 +378,10 @@ impl PartialOrd for InternalNode {
 }
 */
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode {
     pub seqno: SeqNo,
-    pub pid: u64,
+    pub pid: Vec<u8>,
     pub digest: Digest,
 }
 
@@ -402,7 +402,7 @@ impl PartialOrd for LeafNode {
 }
 
 impl LeafNode {
-    pub fn new(seqno: SeqNo, pid: u64, digest: Digest) -> Self {
+    pub fn new(seqno: SeqNo, pid: Vec<u8>, digest: Digest) -> Self {
         Self { seqno, pid, digest }
     }
 
@@ -410,7 +410,7 @@ impl LeafNode {
         self.digest
     }
 
-    pub fn get_pid(&self) -> u64 {
+    pub fn get_pid(&self) -> Vec<u8> {
         self.pid
     }
 
