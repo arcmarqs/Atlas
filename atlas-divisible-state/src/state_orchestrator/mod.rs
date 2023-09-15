@@ -52,7 +52,7 @@ impl PrefixSet {
             self.prefixes.insert(prefix);
         }
 
-        if self.prefixes.len() >= 512 {
+        if self.prefixes.len() >= 2048 {
             println!("merging");
             self.merge_prefixes();
         }
