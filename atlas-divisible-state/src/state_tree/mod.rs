@@ -49,7 +49,7 @@ impl StateTree {
     pub fn insert_leaf(&mut self, leaf: LeafNode) {
         self.seqno = self.seqno.max(leaf.seqno);
         let leaf_pid = leaf.get_pid();
-        if let Some(old) = self.leaves.insert(leaf_pid, leaf) {
+        if let Some(old) = self.leaves.insert(leaf_pid, leaf.clone()) {
             if old.get_digest() == leaf.digest {
                 //value already inserted, no need to continue
 
@@ -411,7 +411,7 @@ impl LeafNode {
     }
 
     pub fn get_pid(&self) -> Vec<u8> {
-        self.pid
+        self.pid.clone()
     }
 
     pub fn update_hash(&mut self, new_digest: Digest) {
