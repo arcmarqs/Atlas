@@ -264,14 +264,20 @@ impl DivisibleState for StateOrchestrator {
        
         let mut state_parts = Vec::new();
         let mut parts = self.updates.lock().expect("failed to lock");
+        let mut hasher = blake3::Hasher::new();
 
         if !parts.is_empty() {
             let len = parts.len();
             println!("{:?}",len);
             let cur_seq = self.mk_tree.next_seqno();
             for (id,prefix) in parts.iter().enumerate() {
-                let kv_pairs = self.db.scan_prefix(prefix.as_ref());
-                let serialized_part = SerializedState::from_prefix(id as u64,kv_pairs, cur_seq);
+                let mut kv_pairs = self.db.scan_prefix(prefix.as_ref());
+                    for kv in kv_pairs.by_ref() {
+                        let (k,v) = kv.expect("fail");
+                        hasher.update(&k);
+                        hasher.update(&v);
+                    }
+                let serialized_part = SerializedState::from_prefix(id as u64,kv_pairs, cur_seq);       
                 self.mk_tree.insert_leaf(serialized_part.leaf);
                 state_parts.push(serialized_part);
             }            
@@ -282,7 +288,8 @@ impl DivisibleState for StateOrchestrator {
 
         drop(parts);
 
-        let mut hasher = blake3::Hasher::new();
+        println!("prefix digest {:?}", Digest::from_bytes(hasher.finalize().as_bytes()).unwrap());
+        hasher.reset();
         for kv in self.db.iter() {
             let (k,v) = kv.expect("fail");
             hasher.update(&k);
