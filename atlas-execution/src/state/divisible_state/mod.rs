@@ -1,4 +1,6 @@
 
+use std::sync::Arc;
+
 #[cfg(feature = "serialize_serde")]
 use serde::{Deserialize, Serialize};
 use atlas_common::error::*;
@@ -35,7 +37,7 @@ pub trait PartId: PartialEq + PartialOrd + Clone {
 pub trait DivisibleStateDescriptor<S: DivisibleState + ?Sized>: Orderable + PartialEq + Clone + Send {
 
     /// Get all the parts of the state
-    fn parts(&self) -> Box<[S::PartDescription]>;
+    fn parts(&self) -> &[Arc<S::PartDescription>];
 
     /// Compare two states
     fn compare_descriptors(&self, other: &Self) -> Vec<S::PartDescription>;

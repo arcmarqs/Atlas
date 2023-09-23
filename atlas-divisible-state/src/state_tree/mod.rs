@@ -5,6 +5,7 @@ use std::{
     collections::BTreeMap, sync::Arc,
 };
 
+use crate::state_orchestrator::PREFIX_LEN;
 // This Merkle tree is based on merkle mountain ranges
 // The Merkle mountain range was invented by Peter Todd. More detalis can be read at
 // [Open Timestamps](https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/merkle-mountain-range.md)
@@ -19,7 +20,7 @@ pub struct StateTree {
     //pub peaks: BTreeMap<u32, NodeRef>,
     pub root: Option<Digest>,
     // stores references to all leaves, ordered by the part id
-    pub leaves: BTreeMap<Box<[u8]>, Arc<LeafNode>>,
+    pub leaves: BTreeMap<[u8;PREFIX_LEN], Arc<LeafNode>>,
 }
 
 impl Default for StateTree {
@@ -41,9 +42,9 @@ impl StateTree {
         }
     }
 
-    pub fn insert_leaf(&mut self, pid: Box<[u8]> , leaf: Arc<LeafNode>) {
+    pub fn insert_leaf(&mut self, pid: &[u8] , leaf: Arc<LeafNode>) {
         self.seqno = self.seqno.max(leaf.seqno);
-        self.leaves.insert(pid, leaf);
+        self.leaves.insert(pid.try_into().expect("failed to insert id"), leaf);
     }
 
 /*
@@ -364,7 +365,7 @@ impl PartialOrd for InternalNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode {
     pub seqno: SeqNo,
-    pub id: Box<[u8]>,
+    pub id: [u8;PREFIX_LEN],
     pub digest: Digest,
 }
 
@@ -385,8 +386,8 @@ impl PartialOrd for LeafNode {
 }
 
 impl LeafNode {
-    pub fn new(seqno: SeqNo, id: Box<[u8]>, digest: Digest) -> Self {
-        Self {seqno, id,digest }
+    pub fn new(seqno: SeqNo, id: &[u8], digest: Digest) -> Self {
+        Self {seqno, id: id.try_into().expect("failed to assign ID"), digest, }
     }
 
     pub fn get_digest(&self) -> &[u8] {

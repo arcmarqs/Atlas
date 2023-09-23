@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -22,8 +23,8 @@ pub mod metrics;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SerializedState {
-    bytes: Arc<[u8]>,
     leaf: Arc<LeafNode>,
+    bytes: Box<[u8]>,
 }
 
 impl SerializedState {
@@ -49,9 +50,9 @@ impl SerializedState {
         let mut hasher = blake3::Hasher::new();
         let kv_pairs = kv_iter
             .map(|kv| kv.map(|(k, v)| (k.to_vec().into_boxed_slice(), v.to_vec().into_boxed_slice())).expect("fail"))
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>().into_boxed_slice();
 
-        let bytes: Arc<[u8]> = bincode::serialize(&kv_pairs).expect("failed to serialize").into();
+        let bytes: Box<[u8]> = bincode::serialize(&kv_pairs).expect("failed to serialize").into();
 
 
         //hasher.update(&pid.to_be_bytes());
@@ -67,8 +68,8 @@ impl SerializedState {
         }
     }
 
-    pub fn to_pairs(&self) -> Vec<(Box<[u8]>,Box<[u8]>)> {
-        let kv_pairs: Vec<(Box<[u8]>,Box<[u8]>)> = bincode::deserialize(&self.bytes).expect("failed to deserialize");
+    pub fn to_pairs(&self) -> Box<[(Box<[u8]>,Box<[u8]>)]> {
+        let kv_pairs: Box<[(Box<[u8]>,Box<[u8]>)]> = bincode::deserialize(&self.bytes).expect("failed to deserialize");
 
         kv_pairs
     }
@@ -155,8 +156,8 @@ impl StateTree {
 }
 
 impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
-    fn parts(&self) -> Box<[LeafNode]> {
-        self.leaves.iter().map(|refs| (**refs).clone()).collect::<Vec<_>>().into_boxed_slice()
+    fn parts(&self) -> &[Arc<LeafNode>] {
+        self.leaves.as_ref()
     }
 
     fn get_digest(&self) -> &Digest {
@@ -228,10 +229,10 @@ impl DivisibleState for StateOrchestrator {
         for part in parts {
             let pairs = part.to_pairs();
             //let mut batch = sled::Batch::default();            
-            self.mk_tree.insert_leaf(part.id().into(), part.leaf.into());
+            self.mk_tree.insert_leaf(part.id().into(), part.leaf.clone());
 
-            for (k,v) in pairs {
-              self.db.insert(&k, v.to_vec()); 
+            for (k,v) in pairs.as_ref() {
+              self.db.db.insert(k, v.to_vec()); 
             }
 
             //self.db.apply_batch(batch).expect("failed to apply batch");
@@ -253,7 +254,7 @@ impl DivisibleState for StateOrchestrator {
             println!("{:?}", self.updates.len());
             let cur_seq = self.mk_tree.next_seqno();
             for prefix in self.updates.iter() {
-                let kv_pairs = self.db.scan_prefix(prefix.as_ref());
+                let kv_pairs = self.db.db.scan_prefix(prefix.as_ref());
                 let serialized_part = SerializedState::from_prefix(prefix.as_ref(),kv_pairs, cur_seq); 
                 state_parts.push(serialized_part.clone());      
                 self.mk_tree.insert_leaf(serialized_part.id().into(), serialized_part.leaf.clone());
@@ -286,7 +287,7 @@ impl DivisibleState for StateOrchestrator {
        println!("Verifying integrity");
 
         self.db
-            .verify_integrity()
+            .db.verify_integrity()
             .wrapped(atlas_common::error::ErrorKind::Error)
     }
 }
