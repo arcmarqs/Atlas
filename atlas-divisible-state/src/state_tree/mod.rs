@@ -2,8 +2,7 @@ use atlas_common::{crypto::hash::*, ordering::SeqNo};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
-    collections::BTreeMap,
-    sync::Arc,
+    collections::BTreeMap, sync::Arc,
 };
 
 // This Merkle tree is based on merkle mountain ranges
@@ -14,21 +13,18 @@ use std::{
 
 #[derive(Debug, Clone)]
 pub struct StateTree {
-    // if any node of the tree was updated, we should recalculate the whole tree
-    updated: bool,
     // Sequence number of the latest update in the tree.
     pub seqno: SeqNo,
     // Stores the peaks by level, every time a new peak of the same level is inserted, a new internal node with level +1 is created.
     //pub peaks: BTreeMap<u32, NodeRef>,
     pub root: Option<Digest>,
-    // stores references to all leaves, ordered by the page id
-    pub leaves: BTreeMap<Vec<u8>, LeafNode>,
+    // stores references to all leaves, ordered by the part id
+    pub leaves: BTreeMap<Box<[u8]>, Arc<LeafNode>>,
 }
 
 impl Default for StateTree {
     fn default() -> Self {
         Self {
-            updated: false,
             seqno: SeqNo::ZERO,
             root: Default::default(),
             leaves: Default::default(),
@@ -39,26 +35,15 @@ impl Default for StateTree {
 impl StateTree {
     pub fn init() -> Self {
         Self {
-            updated: false,
             seqno: SeqNo::ZERO,
             root: Default::default(),
             leaves: BTreeMap::new(),
         }
     }
 
-    pub fn insert_leaf(&mut self, leaf: LeafNode) {
+    pub fn insert_leaf(&mut self, pid: Box<[u8]> , leaf: Arc<LeafNode>) {
         self.seqno = self.seqno.max(leaf.seqno);
-        let leaf_pid = leaf.get_pid();
-        if let Some(old) = self.leaves.insert(leaf_pid, leaf.clone()) {
-            if old.get_digest() == leaf.digest {
-                //value already inserted, no need to continue
-
-                return;
-            }
-
-            // we changed a node so we must recalculate the tree in the next checkpoint
-            self.updated = true;
-        }
+        self.leaves.insert(pid, leaf);
     }
 
 /*
@@ -157,17 +142,16 @@ impl StateTree {
      */
 
     pub fn calculate_tree(&mut self) {
-        let mut peaks = BTreeMap::new();       
-        let mut hasher = blake3::Hasher::default();
+        let mut peaks: BTreeMap<u32,Digest> = BTreeMap::new();       
         for leaf in self.leaves.values() {
-            let mut node_digest = leaf.get_digest();
+            let mut node_digest = leaf.get_digest_cloned();
             let mut level = 0;
 
             while let Some(same_level) = peaks.insert(level, node_digest) {
-                let buf = [same_level.as_ref(),node_digest.as_ref()].concat();
-                hasher.update(buf.as_ref());
-                node_digest = Digest::from_bytes(hasher.finalize().as_bytes()).expect("failed to convert bytes");                
-                hasher.reset();
+                let mut hasher = Context::new();
+                hasher.update(same_level.as_ref());
+                hasher.update(node_digest.as_ref());
+                node_digest = hasher.finish();            
                 peaks.remove(&level);
 
                 level +=1;
@@ -182,22 +166,21 @@ impl StateTree {
     // iterates over peaks and consolidates them into a single node
     fn bag_peaks(&self, peaks: BTreeMap<u32, Digest>) -> Option<Digest> {
         let mut bagged_peaks: Vec<Digest> = Vec::new();
-        let mut hasher = blake3::Hasher::default();
 
         // Iterating in reverse makes the tree more unbalanced, but preserves the order of insertion,
         // this is important when serializing or sending the tree since we send only the root digest and the leaves.
         for peak in peaks.values().rev() {
             if let Some(top) = bagged_peaks.pop() {
+                let mut hasher = Context::new();
                 let buf = [top.as_ref(),peak.as_ref()].concat();
                 hasher.update(buf.as_ref());
-                let new_top = Digest::from_bytes(hasher.finalize().as_bytes()).expect("failed to convert bytes");
-                hasher.reset();
+                let new_top = hasher.finish();
                 bagged_peaks.push(new_top);
             } else {
-                bagged_peaks.push(peak.clone());
+                bagged_peaks.push(*peak);
             }
         }
-
+        assert!(bagged_peaks.len() == 1);
         bagged_peaks.pop()
     }
 
@@ -381,7 +364,7 @@ impl PartialOrd for InternalNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode {
     pub seqno: SeqNo,
-    pub pid: Vec<u8>,
+    pub id: Box<[u8]>,
     pub digest: Digest,
 }
 
@@ -393,28 +376,32 @@ impl PartialEq for LeafNode {
 
 impl PartialOrd for LeafNode {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match self.seqno.partial_cmp(&other.seqno) {
+        match self.digest.partial_cmp(&other.digest) {
             Some(core::cmp::Ordering::Equal) => {}
             ord => return ord,
         }
-        self.pid.partial_cmp(&other.pid)
+        self.seqno.partial_cmp(&other.seqno)
     }
 }
 
 impl LeafNode {
-    pub fn new(seqno: SeqNo, pid: Vec<u8>, digest: Digest) -> Self {
-        Self { seqno, pid, digest }
+    pub fn new(seqno: SeqNo, id: Box<[u8]>, digest: Digest) -> Self {
+        Self {seqno, id,digest }
     }
 
-    pub fn get_digest(&self) -> Digest {
-        self.digest
+    pub fn get_digest(&self) -> &[u8] {
+        self.digest.as_ref()
     }
 
-    pub fn get_pid(&self) -> Vec<u8> {
-        self.pid.clone()
+    pub fn get_digest_cloned(&self) -> Digest {
+        self.digest.clone()
     }
 
     pub fn update_hash(&mut self, new_digest: Digest) {
         self.digest = new_digest;
+    }
+
+    pub fn get_id(&self) -> &[u8] {
+        self.id.as_ref()
     }
 }

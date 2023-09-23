@@ -1,61 +1,64 @@
 use std::{sync::{
         Arc, Mutex, atomic::{AtomicI32, AtomicUsize}
-    }, collections::{BTreeSet, BTreeMap, btree_set::Iter}};
+    }, collections::{BTreeSet, btree_set::Iter}};
 
 use crate::{
     state_tree::StateTree,
     SerializedTree,
 };
-use atlas_common::{async_runtime::spawn, collections::{ConcurrentHashMap, HashSet, OrderedMap}};
+use atlas_common::async_runtime::spawn;
 use serde::{Deserialize, Serialize};
-use sled::{Config, Db, EventType, Mode, Subscriber, Guard, IVec};
+use sled::{Config, Db, EventType, Mode, Subscriber, Guard, IVec,};
+const PREFIX_LEN: usize = 7;
 
 #[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
-pub struct Prefix(pub Vec<u8>);
+pub struct Prefix([u8;7]);
 
 impl Prefix {
-    pub fn new(prefix: Vec<u8>) -> Prefix {
-        Self(prefix)
+    pub fn new(prefix: &[u8]) -> Prefix {
+        Self(prefix.try_into().expect("incorrect size"))
     }
+
     pub fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
 
-    pub fn truncate(&self, len: usize) -> Prefix{
-        Prefix(self.0[..len].to_vec())
-    }
+   // pub fn truncate(&self, len: usize) -> Prefix {
+  //      let new_prefix = self.0[..len];
+//
+  //      Prefix(new_prefix)
+ //   }
 }
 // A bitmap that registers changed prefixes over a set of keys
 #[derive(Debug,Default,Clone)]
 pub struct PrefixSet {
-    prefix_len: usize,
-    prefixes: BTreeSet<Prefix>,
+    pub prefixes: BTreeSet<Prefix>,
 }
 
 impl PrefixSet {
     pub fn new() -> PrefixSet {
         Self { 
-            prefix_len: 0, 
             prefixes: BTreeSet::default(), 
         }
     }
 
-    pub fn insert(&mut self, key: Vec<u8>) {
+    pub fn insert(&mut self, key: &[u8]) {
 
         // if a prefix corresponds to a full key we can simply use the full key
-        if self.prefixes.is_empty() {
-            let prefix = Prefix::new(key.to_vec());
-            self.prefix_len = prefix.0.len();
-            self.prefixes.insert(prefix);
-        } else {
-            let prefix = Prefix::new(key.iter().take(self.prefix_len).map(|b| b.clone()).collect::<Vec<_>>());
-            self.prefixes.insert(prefix);
-        }
+        
+        let prefix = Prefix::new(&key[..PREFIX_LEN]);
 
-        if self.prefixes.len() >= 8000 {
-            println!("merging");
-            self.merge_prefixes();
-        }
+      //  if self.prefixes.is_empty() {
+      //      self.prefix_len = prefix.0.len();
+      //      self.prefixes.insert(prefix);
+      //  } else {
+            self.prefixes.insert(prefix);
+       // }
+
+       // if self.prefixes.len() >= 8000 {
+       //     println!("merging");
+       //     self.merge_prefixes();
+       // }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -72,18 +75,17 @@ impl PrefixSet {
 
     pub fn clear(&mut self) {
         self.prefixes.clear();
-        self.prefix_len = 0;
+       // self.prefix_len = 0;
     }
 
-    fn merge_prefixes(&mut self) {
-        self.prefix_len -= 1;
-        let mut new_set: BTreeSet<Prefix> = BTreeSet::new();
-        for prefix in self.prefixes.iter() {
-            new_set.insert(prefix.truncate(self.prefix_len));
-        }
-
-        self.prefixes = new_set;
-    }
+   // fn merge_prefixes(&mut self) {
+  //      self.prefix_len -= 1;
+  //      let mut new_set: BTreeSet<Prefix> = BTreeSet::new();
+  //      for prefix in self.prefixes.iter() {
+  //          new_set.insert(prefix.truncate(self.prefix_len));
+   //     }
+   //     self.prefixes = new_set;
+   // }
 }
 
  
@@ -92,7 +94,7 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub db: Arc<Db>,
     #[serde(skip_serializing, skip_deserializing)]
-    pub updates: Arc<Mutex<PrefixSet>>,
+    pub updates: PrefixSet,
     #[serde(skip_serializing, skip_deserializing)]
     pub mk_tree: StateTree,
 }
@@ -101,15 +103,11 @@ impl StateOrchestrator {
     pub fn new(path: &str) -> Self {
         let conf = Config::new()
         .mode(Mode::HighThroughput)
-        .flush_every_ms(Some(50))
         .path(path);
 
         let db = conf.open().unwrap();
-        for name in db.tree_names() {
-           let _ = db.drop_tree(name);
-        }
-        let updates = Arc::new(Mutex::new(PrefixSet::default()));
-        let subscriber = db.watch_prefix(vec![]);
+        
+        let updates = PrefixSet::default();
 
         let ret = Self {
             db: Arc::new(db),
@@ -117,10 +115,10 @@ impl StateOrchestrator {
             mk_tree: StateTree::default(),
         };
 
-        let _ = spawn(
-            monitor_changes(
-                updates.clone(),
-                subscriber));
+      //  let _ = spawn(
+     //       monitor_changes(
+     //           updates.clone(),
+      //          subscriber));
 
        ret
     }
@@ -129,8 +127,18 @@ impl StateOrchestrator {
         self.db.watch_prefix(vec![])
     }
 
-    pub fn insert(&self, key: Vec<u8>, value: Vec<u8>) {
-        self.db.insert(key, value);
+    pub fn insert(&mut self, key: &[u8], value: Vec<u8>) -> Option<IVec> {
+        self.updates.insert(&key);
+        self.db.insert(key, value).expect("Error inserting key")
+    }
+
+    pub fn remove(&mut self, key: &[u8])-> Option<IVec> {
+        self.updates.insert(&key);
+        self.db.remove(key).expect("error removing key")
+    }
+
+    pub fn get(&self, key: &[u8]) -> Option<IVec> {
+        self.db.get(key).expect("error getting key")
     }
 
     pub fn generate_id(&self) -> u64 {
@@ -213,6 +221,7 @@ impl StateOrchestrator {
 
 }
 
+/* 
 pub async fn monitor_changes(state: Arc<Mutex<PrefixSet>>, mut subscriber: Subscriber) {
     while let Some(event) = (&mut subscriber).await {
         match event {
@@ -234,10 +243,11 @@ pub async fn monitor_changes(state: Arc<Mutex<PrefixSet>>, mut subscriber: Subsc
              EventType::Update(event) => {
                 let mut lock = state.lock().expect("failed to lock");
                 for (_,k,_) in event.iter() {
-                    lock.insert(k.to_vec());
+                    lock.insert(k.as_ref());
                 }
             }
             _ => ()
         }
     }
 }
+*/

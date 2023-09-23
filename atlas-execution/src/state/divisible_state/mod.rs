@@ -1,3 +1,4 @@
+
 #[cfg(feature = "serialize_serde")]
 use serde::{Deserialize, Serialize};
 use atlas_common::error::*;
@@ -25,7 +26,7 @@ pub struct AppStateMessage<S> where S: DivisibleState {
 /// The trait that represents the ID of a part
 pub trait PartId: PartialEq + PartialOrd + Clone {
 
-    fn content_description(&self) -> Digest;
+    fn content_description(&self) -> &[u8];
     fn seq_no(&self) -> &SeqNo;
 
 }
@@ -34,7 +35,7 @@ pub trait PartId: PartialEq + PartialOrd + Clone {
 pub trait DivisibleStateDescriptor<S: DivisibleState + ?Sized>: Orderable + PartialEq + Clone + Send {
 
     /// Get all the parts of the state
-    fn parts(&self) -> &Vec<S::PartDescription>;
+    fn parts(&self) -> Box<[S::PartDescription]>;
 
     /// Compare two states
     fn compare_descriptors(&self, other: &Self) -> Vec<S::PartDescription>;
@@ -51,7 +52,7 @@ pub trait StatePart<S: DivisibleState + ?Sized> {
 
     fn hash(&self) -> Digest;
 
-    fn id(&self) -> Vec<u8>;
+    fn id(&self) -> &[u8];
 
     fn length(&self) -> usize;
 
@@ -60,7 +61,7 @@ pub trait StatePart<S: DivisibleState + ?Sized> {
 }
 
 pub trait PartDescription {
-    fn id(&self) -> &Vec<u8>;
+    fn id(&self) -> &[u8];
 }
 
 ///
@@ -85,7 +86,7 @@ pub trait DivisibleState: Sized + Send + Sync + Clone {
     #[cfg(feature = "serialize_capnp")]
     type StatePart: StatePart<Self> + Send + Clone;
 
-    fn get_descriptor(&self) -> Self::StateDescriptor;
+    fn get_descriptor(&self) -> Option<Self::StateDescriptor>;
 
     /// Accept a number of parts into our current state
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> Result<()>;
