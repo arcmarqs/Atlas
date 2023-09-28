@@ -28,24 +28,6 @@ pub struct SerializedState {
 }
 
 impl SerializedState {
-  /*   pub fn from_node(pid: u64, node: sled::Node, seq: SeqNo) -> Self {
-        let sst_pairs = node.iter().map(|(key,value)| (IVec::from(key).to_vec(),value.to_vec())).collect::<Vec<_>>();
-        let bytes = bincode::serialize(&sst_pairs).expect("failed to serialize");
-        let mut hasher = blake3::Hasher::new();
-
-        //hasher.update(&pid.to_be_bytes());
-        hasher.update(bytes.as_slice());
-
-        Self {
-            bytes,
-            leaf: LeafNode::new(
-                seq,
-                pid,
-                Digest::from_bytes(hasher.finalize().as_bytes()).unwrap(),
-            ),
-        }
-    }*/
-
     pub fn from_prefix(prefix: Prefix, kvs: &[(Box<[u8]>,Box<[u8]>)], seq: SeqNo) -> Self {
         let mut hasher = Context::new();
 
@@ -139,36 +121,6 @@ impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
     fn get_digest(&self) -> Option<Digest> {
         self.tree.read().expect("failed to read").root
     }
-
-    // compare state descriptors and return different parts
- /*    fn compare_descriptors(&self, other: &Self) -> Vec<LeafNode> {
-        let mut diff_parts = Vec::new();
-        if self.root_digest != other.root_digest {
-            if self.seqno >= other.seqno {
-                for (index, leaf) in self.leaves.iter().enumerate() {
-                    if let Some(other_leaf) = other.leaves.get(index) {
-                        if other_leaf.digest != leaf.digest {
-                            diff_parts.push(leaf.clone());
-                        }
-                    } else {
-                        diff_parts.push(leaf.clone());
-                    }
-                }
-            } else {
-                for (index, other_leaf) in other.leaves.iter().enumerate() {
-                    if let Some(leaf) = self.leaves.get(index) {
-                        if other_leaf.digest != leaf.digest {
-                            diff_parts.push(other_leaf.clone());
-                        }
-                    } else {
-                        diff_parts.push(other_leaf.clone());
-                    }
-                }
-            }
-        }
-
-        todo!()
-    }*/
 }
 
 impl PartId for LeafNode {
@@ -228,7 +180,6 @@ impl DivisibleState for StateOrchestrator {
             let cur_seq = tree_lock.next_seqno();
             for prefix in self.updates.iter() {
                 let kv_iter = self.db.0.scan_prefix(prefix.as_ref());
-                println!("iter_size {:?}", kv_iter.size_hint());
                 let kv_pairs = kv_iter
                 .map(|kv| kv.map(|(k, v)| (k[PREFIX_LEN..].into(), v.deref().into())).expect("fail"))
                 .collect::<Box<_>>();
@@ -256,12 +207,9 @@ impl DivisibleState for StateOrchestrator {
         
         self.mk_tree.write().expect("failed to get write").calculate_tree();
     
-        println!("finished st {:?}", self.get_descriptor());
-        //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
+        //println!("finished st {:?}", self.get_descriptor());
 
-        //self.mk_tree.calculate_tree();
-
-       println!("Verifying integrity");
+        println!("Verifying integrity");
 
         self.db
             .0.verify_integrity()
