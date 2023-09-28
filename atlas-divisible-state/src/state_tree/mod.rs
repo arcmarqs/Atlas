@@ -2,30 +2,38 @@ use atlas_common::{crypto::hash::*, ordering::SeqNo};
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
-    collections::BTreeMap, sync::Arc,
+    collections::BTreeMap, sync:: Arc,
 };
 
-use crate::state_orchestrator::PREFIX_LEN;
+use crate::state_orchestrator::Prefix;
 // This Merkle tree is based on merkle mountain ranges
 // The Merkle mountain range was invented by Peter Todd. More detalis can be read at
 // [Open Timestamps](https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/merkle-mountain-range.md)
 // and the [Grin project](https://github.com/mimblewimble/grin/blob/master/doc/mmr.md).
 // Might implement a caching strategy to store the least changed nodes in the merkle tree.
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct StateTree {
+   // control: AtomicBool,
     // Sequence number of the latest update in the tree.
     pub seqno: SeqNo,
     // Stores the peaks by level, every time a new peak of the same level is inserted, a new internal node with level +1 is created.
     //pub peaks: BTreeMap<u32, NodeRef>,
     pub root: Option<Digest>,
     // stores references to all leaves, ordered by the part id
-    pub leaves: BTreeMap<[u8;PREFIX_LEN], Arc<LeafNode>>,
+    pub leaves: BTreeMap<Prefix, Arc<LeafNode>>,
+}
+
+impl Clone for StateTree {
+    fn clone(&self) -> Self {
+        Self { seqno: self.seqno.clone(), root: self.root.clone(), leaves: self.leaves.clone()}
+    }
 }
 
 impl Default for StateTree {
     fn default() -> Self {
         Self {
+          //  control: AtomicBool::new(false),
             seqno: SeqNo::ZERO,
             root: Default::default(),
             leaves: Default::default(),
@@ -36,15 +44,16 @@ impl Default for StateTree {
 impl StateTree {
     pub fn init() -> Self {
         Self {
+         //   control: AtomicBool::new(false),
             seqno: SeqNo::ZERO,
             root: Default::default(),
             leaves: BTreeMap::new(),
         }
     }
 
-    pub fn insert_leaf(&mut self, pid: &[u8] , leaf: Arc<LeafNode>) {
+    pub fn insert_leaf(&mut self, pid: Prefix , leaf: Arc<LeafNode>) {
         self.seqno = self.seqno.max(leaf.seqno);
-        self.leaves.insert(pid.try_into().expect("failed to insert id"), leaf);
+        self.leaves.insert(pid, leaf);
     }
 
 /*
@@ -165,22 +174,24 @@ impl StateTree {
     }
 
     // iterates over peaks and consolidates them into a single node
-    fn bag_peaks(&self, peaks: BTreeMap<u32, Digest>) -> Option<Digest> {
+    fn bag_peaks(&self, mut peaks: BTreeMap<u32, Digest>) -> Option<Digest> {
         let mut bagged_peaks: Vec<Digest> = Vec::new();
 
         // Iterating in reverse makes the tree more unbalanced, but preserves the order of insertion,
         // this is important when serializing or sending the tree since we send only the root digest and the leaves.
-        for peak in peaks.values().rev() {
+        while !peaks.is_empty() {
+            let peak = peaks.pop_last().unwrap().1;
             if let Some(top) = bagged_peaks.pop() {
                 let mut hasher = Context::new();
-                let buf = [top.as_ref(),peak.as_ref()].concat();
-                hasher.update(buf.as_ref());
+                hasher.update(top.as_ref());
+                hasher.update(peak.as_ref());
                 let new_top = hasher.finish();
                 bagged_peaks.push(new_top);
             } else {
-                bagged_peaks.push(*peak);
+                bagged_peaks.push(peak);
             }
         }
+
         assert!(bagged_peaks.len() == 1);
         bagged_peaks.pop()
     }
@@ -365,7 +376,7 @@ impl PartialOrd for InternalNode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeafNode {
     pub seqno: SeqNo,
-    pub id: [u8;PREFIX_LEN],
+    pub id: Prefix,
     pub digest: Digest,
 }
 
@@ -386,8 +397,8 @@ impl PartialOrd for LeafNode {
 }
 
 impl LeafNode {
-    pub fn new(seqno: SeqNo, id: &[u8], digest: Digest) -> Self {
-        Self {seqno, id: id.try_into().expect("failed to assign ID"), digest, }
+    pub fn new(seqno: SeqNo, id: Prefix, digest: Digest) -> Self {
+        Self {seqno, id, digest, }
     }
 
     pub fn get_digest(&self) -> &[u8] {

@@ -1,5 +1,5 @@
 
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 #[cfg(feature = "serialize_serde")]
 use serde::{Deserialize, Serialize};
@@ -37,12 +37,12 @@ pub trait PartId: PartialEq + PartialOrd + Clone {
 pub trait DivisibleStateDescriptor<S: DivisibleState + ?Sized>: Orderable + PartialEq + Clone + Send {
 
     /// Get all the parts of the state
-    fn parts(&self) -> &[Arc<S::PartDescription>];
+    fn parts(&self) -> Box<[Arc<S::PartDescription>]>;
 
     /// Compare two states
-    fn compare_descriptors(&self, other: &Self) -> Vec<S::PartDescription>;
+    //fn compare_descriptors(&self, other: &Self) -> Vec<S::PartDescription>;
 
-    fn get_digest(&self) -> &Digest;
+    fn get_digest(&self) -> Option<Digest>;
 
 }
 
@@ -69,7 +69,7 @@ pub trait PartDescription {
 ///
 /// The trait that represents a divisible state, to be used by the state transfer protocol
 ///
-pub trait DivisibleState: Sized + Send + Sync + Clone {
+pub trait DivisibleState: Sized + Clone + Send + Sync {
     #[cfg(feature = "serialize_serde")]
     type PartDescription: PartDescription + PartId + for<'a> Deserialize<'a> + Serialize + Send + Clone + std::fmt::Debug;
 
@@ -88,7 +88,7 @@ pub trait DivisibleState: Sized + Send + Sync + Clone {
     #[cfg(feature = "serialize_capnp")]
     type StatePart: StatePart<Self> + Send + Clone;
 
-    fn get_descriptor(&self) -> Option<Self::StateDescriptor>;
+    fn get_descriptor(&self) -> Self::StateDescriptor;
 
     /// Accept a number of parts into our current state
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> Result<()>;

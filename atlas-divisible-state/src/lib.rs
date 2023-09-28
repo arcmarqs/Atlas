@@ -1,5 +1,6 @@
+use std::collections::btree_map::Values;
 use std::ops::Deref;
-use std::sync::Arc;
+use std::sync::{Arc,RwLock};
 use std::time::Instant;
 
 use atlas_common::crypto::hash::Context;
@@ -11,8 +12,7 @@ use atlas_execution::state::divisible_state::{
 };
 use atlas_metrics::metrics::metric_duration;
 use serde::{Deserialize, Serialize};
-use sled::Iter;
-use state_orchestrator::StateOrchestrator;
+use state_orchestrator::{StateOrchestrator, PREFIX_LEN, Prefix};
 use state_tree::{LeafNode,StateTree};
 use crate::metrics::CREATE_CHECKPOINT_TIME_ID;
 
@@ -46,15 +46,12 @@ impl SerializedState {
         }
     }*/
 
-    pub fn from_prefix(prefix: &[u8], kv_iter: Iter, seq: SeqNo) -> Self {
-        let mut hasher = blake3::Hasher::new();
-        let kv_pairs = kv_iter
-            .map(|kv| kv.map(|(k, v)| (k.to_vec().into_boxed_slice(), v.to_vec().into_boxed_slice())).expect("fail"))
-            .collect::<Vec<_>>().into_boxed_slice();
+    pub fn from_prefix(prefix: Prefix, kvs: &[(Box<[u8]>,Box<[u8]>)], seq: SeqNo) -> Self {
+        let mut hasher = Context::new();
 
-        let bytes: Box<[u8]> = bincode::serialize(&kv_pairs).expect("failed to serialize").into();
+        let bytes: Box<[u8]> = bincode::serialize(&kvs).expect("failed to serialize").into();
 
-
+        println!("bytes {:?}", bytes.len());
         //hasher.update(&pid.to_be_bytes());
         hasher.update(&bytes);
 
@@ -62,8 +59,8 @@ impl SerializedState {
             bytes,
             leaf: LeafNode::new(
                 seq,
-                prefix.into(),
-                Digest::from_bytes(hasher.finalize().as_bytes()).unwrap(),
+                prefix,
+                hasher.finish(),
             ).into(),
         }
     }
@@ -90,7 +87,7 @@ impl StatePart<StateOrchestrator> for SerializedState {
     }
 
     fn id(&self) -> &[u8] {
-        self.leaf.id.as_ref()
+        self.leaf.id()
     }
 
     fn length(&self) -> usize {
@@ -107,29 +104,20 @@ impl StatePart<StateOrchestrator> for SerializedState {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedTree {
-    root_digest: Digest,
-    seqno: SeqNo,
-    // the leaves that make this merke tree, they must be in order.
-    leaves: Box<[Arc<LeafNode>]>,
+    tree: Arc<RwLock<StateTree>>
 }
 
 impl SerializedTree {
-    pub fn new(digest: Digest, seqno: SeqNo, leaves: Box<[Arc<LeafNode>]>) -> Self {
+    pub fn new(tree: Arc<RwLock<StateTree>>) -> Self {
         Self {
-            root_digest: digest,
-            seqno,
-            leaves,
+            tree
         }
-    }
-
-    pub fn from_state(state: StateTree) -> Result<Self, ()> {
-        state.to_serialized_tree()
     }
 }
 
 impl PartialEq for SerializedTree {
     fn eq(&self, other: &Self) -> bool {
-        self.root_digest == other.root_digest
+        self.tree.read().expect("failed to read").root.eq(&other.tree.read().expect("failed to read").root)
     }
 
     fn ne(&self, other: &Self) -> bool {
@@ -139,33 +127,21 @@ impl PartialEq for SerializedTree {
 
 impl Orderable for SerializedTree {
     fn sequence_number(&self) -> ordering::SeqNo {
-        self.seqno
-    }
-}
-
-impl StateTree {
-    pub fn to_serialized_tree(&self) -> Result<SerializedTree, ()> {
-        let leaf_list = self.leaves.values().map(|v| v.clone()).collect();
-
-        if let Some(root) = self.root { 
-            Ok(SerializedTree::new(root, self.seqno, leaf_list))
-        } else {
-            Err(())
-        }        
+        self.tree.read().expect("failed to read").seqno
     }
 }
 
 impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
-    fn parts(&self) -> &[Arc<LeafNode>] {
-        self.leaves.as_ref()
+    fn parts(&self) -> Box<[Arc<LeafNode>]>{
+        self.tree.read().expect("failed to read").leaves.values().cloned().collect::<Box<_>>()
     }
 
-    fn get_digest(&self) -> &Digest {
-        &self.root_digest
+    fn get_digest(&self) -> Option<Digest> {
+        self.tree.read().expect("failed to read").root
     }
 
     // compare state descriptors and return different parts
-    fn compare_descriptors(&self, other: &Self) -> Vec<LeafNode> {
+ /*    fn compare_descriptors(&self, other: &Self) -> Vec<LeafNode> {
         let mut diff_parts = Vec::new();
         if self.root_digest != other.root_digest {
             if self.seqno >= other.seqno {
@@ -192,7 +168,7 @@ impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
         }
 
         todo!()
-    }
+    }*/
 }
 
 impl PartId for LeafNode {
@@ -216,23 +192,20 @@ impl DivisibleState for StateOrchestrator {
     type StateDescriptor = SerializedTree;
     type StatePart = SerializedState;
 
-    fn get_descriptor(&self) -> Option<Self::StateDescriptor> {
-      if let Ok(desc) = self.get_descriptor_inner() {
-          Some(desc)
-      } else {
-        None
-      }
+    fn get_descriptor(&self) -> SerializedTree {
+        self.get_descriptor_inner()
     }
 
     fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
 
         for part in parts {
             let pairs = part.to_pairs();
+            let prefix = part.id();
             //let mut batch = sled::Batch::default();            
-            self.mk_tree.insert_leaf(part.id().into(), part.leaf.clone());
+            self.mk_tree.write().expect("failed to write").insert_leaf(part.leaf.id.clone(), part.leaf.clone());
 
-            for (k,v) in pairs.as_ref() {
-              self.db.db.insert(k, v.to_vec()); 
+            for (k,v) in pairs.iter() {
+              self.db.0.insert([prefix,k.as_ref()].concat(), v.as_ref()); 
             }
 
             //self.db.apply_batch(batch).expect("failed to apply batch");
@@ -249,35 +222,39 @@ impl DivisibleState for StateOrchestrator {
         let checkpoint_start = Instant::now();
        
         let mut state_parts = Vec::new();
-
+        let mut tree_lock = self.mk_tree.write().expect("failed to write");
         if !self.updates.is_empty() {
             println!("{:?}", self.updates.len());
-            let cur_seq = self.mk_tree.next_seqno();
+            let cur_seq = tree_lock.next_seqno();
             for prefix in self.updates.iter() {
-                let kv_pairs = self.db.db.scan_prefix(prefix.as_ref());
-                let serialized_part = SerializedState::from_prefix(prefix.as_ref(),kv_pairs, cur_seq); 
-                state_parts.push(serialized_part.clone());      
-                self.mk_tree.insert_leaf(serialized_part.id().into(), serialized_part.leaf.clone());
+                let kv_iter = self.db.0.scan_prefix(prefix.as_ref());
+                println!("iter_size {:?}", kv_iter.size_hint());
+                let kv_pairs = kv_iter
+                .map(|kv| kv.map(|(k, v)| (k[PREFIX_LEN..].into(), v.deref().into())).expect("fail"))
+                .collect::<Box<_>>();
+                let serialized_part = SerializedState::from_prefix(prefix.clone(),kv_pairs.as_ref(), cur_seq); 
+                tree_lock.insert_leaf(prefix.clone(),serialized_part.leaf.clone());
+                state_parts.push(serialized_part);      
             } 
 
             self.updates.clear();           
 
-            self.mk_tree.calculate_tree();
+            tree_lock.calculate_tree();
         }
 
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
-        Ok((state_parts, self.get_descriptor().unwrap()))
+        Ok((state_parts, self.get_descriptor()))
     }
 
     fn get_seqno(&self) -> atlas_common::error::Result<SeqNo> {
-        Ok(self.mk_tree.get_seqno())
+        Ok(self.mk_tree.read().expect("failed to read").get_seqno())
     }
 
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {           
         
-        self.mk_tree.calculate_tree();
+        self.mk_tree.write().expect("failed to get write").calculate_tree();
     
         println!("finished st {:?}", self.get_descriptor());
         //println!("TOTAL STATE TRANSFERED {:?}", self.db.size_on_disk());
@@ -287,7 +264,7 @@ impl DivisibleState for StateOrchestrator {
        println!("Verifying integrity");
 
         self.db
-            .db.verify_integrity()
+            .0.verify_integrity()
             .wrapped(atlas_common::error::ErrorKind::Error)
     }
 }

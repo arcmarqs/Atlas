@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, btree_set::Iter};
+use std::{collections::{BTreeSet, btree_set::Iter}, sync::{Arc, RwLock}};
 
 use crate::{
     state_tree::StateTree,
@@ -8,12 +8,12 @@ use serde::{Deserialize, Serialize};
 use sled::{Config, Db, Mode, Subscriber, IVec,};
 pub const PREFIX_LEN: usize = 7;
 
-#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
-pub struct Prefix([u8;7]);
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct Prefix(pub [u8;PREFIX_LEN]);
 
 impl Prefix {
     pub fn new(prefix: &[u8]) -> Prefix {
-        Self(prefix.try_into().expect("incorrect size"))
+        Self(prefix.try_into().expect("failed to create array"))
     }
 
     pub fn as_ref(&self) -> &[u8] {
@@ -85,15 +85,12 @@ impl PrefixSet {
    // }
 }
 
+#[derive(Debug,Clone)]
+pub struct DbWrapper(pub Arc<Db>);
 
-#[derive(Debug, Clone,)]
-pub struct DbWrapper {
-    pub db: Db,
- }
-
- impl Default for DbWrapper {
+impl Default for DbWrapper {
     fn default() -> Self {
-        Self { db: Config::new().open().expect("failed to open") }
+        Self (Arc::new(Config::new().open().expect("failed to open")) )
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +100,7 @@ pub struct StateOrchestrator {
     #[serde(skip_serializing, skip_deserializing)]
     pub updates: PrefixSet,
     #[serde(skip_serializing, skip_deserializing)]
-    pub mk_tree: StateTree,
+    pub mk_tree: Arc<RwLock<StateTree>>,
 }
 
 impl StateOrchestrator {
@@ -114,12 +111,10 @@ impl StateOrchestrator {
 
         let db = conf.open().unwrap();
         
-        let updates = PrefixSet::default();
-
         let ret = Self {
-            db: DbWrapper { db },
-            updates: updates.clone(),
-            mk_tree: StateTree::default(),
+            db: DbWrapper(Arc::new(db)),
+            updates: PrefixSet::default(),
+            mk_tree: Arc::new(RwLock::new(StateTree::default())),
         };
 
       //  let _ = spawn(
@@ -131,25 +126,25 @@ impl StateOrchestrator {
     }
 
     pub fn get_subscriber(&self) -> Subscriber {
-        self.db.db.watch_prefix(vec![])
+        self.db.0.watch_prefix(vec![])
     }
 
     pub fn insert(&mut self, key: &[u8], value: Vec<u8>) -> Option<IVec> {
         self.updates.insert(&key);
-        self.db.db.insert(key, value).expect("Error inserting key")
+        self.db.0.insert(key, value).expect("Error inserting key")
     }
 
     pub fn remove(&mut self, key: &[u8])-> Option<IVec> {
         self.updates.insert(&key);
-        self.db.db.remove(key).expect("error removing key")
+        self.db.0.remove(key).expect("error removing key")
     }
 
     pub fn get(&self, key: &[u8]) -> Option<IVec> {
-        self.db.db.get(key).expect("error getting key")
+        self.db.0.get(key).expect("error getting key")
     }
 
     pub fn generate_id(&self) -> u64 {
-        self.db.db.generate_id().expect("Failed to Generate id")
+        self.db.0.generate_id().expect("Failed to Generate id")
     }
 
   /*   pub fn checksum_prefix(&self, prefix: &[u8]) -> Digest {
@@ -222,8 +217,8 @@ impl StateOrchestrator {
         }
     } */
 
-    pub fn get_descriptor_inner(&self) -> Result<SerializedTree, ()> {
-        self.mk_tree.to_serialized_tree()
+    pub fn get_descriptor_inner(&self) -> SerializedTree {
+        SerializedTree { tree: self.mk_tree.clone() }
     }
 
 }
