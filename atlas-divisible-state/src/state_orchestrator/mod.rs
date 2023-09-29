@@ -117,11 +117,6 @@ impl StateOrchestrator {
             mk_tree: Arc::new(RwLock::new(StateTree::default())),
         };
 
-      //  let _ = spawn(
-     //       monitor_changes(
-     //           updates.clone(),
-      //          subscriber));
-
        ret
     }
 
@@ -147,109 +142,9 @@ impl StateOrchestrator {
         self.db.0.generate_id().expect("Failed to Generate id")
     }
 
-  /*   pub fn checksum_prefix(&self, prefix: &[u8]) -> Digest {
-        let mut iterator = self.db.scan_prefix(prefix);
-        let mut hasher = Context::new();
-
-        while let Some(Ok((key, value))) = iterator.next() {
-            hasher.update(key.as_ref());
-            hasher.update(value.as_ref());
-        }
-
-        hasher.finish()
-    }
-
-    //Exports all entries with a certain prefix.
-    pub fn export_prefix(&self, prefix: &[u8]) -> Vec<Vec<Vec<u8>>> {
-        let kvs_iter = self.db.scan_prefix(prefix);use atlas_common::persistentdb::sled;
-
-
-        kvs_iter
-            .map(|kv_opt| {
-                let kv = kv_opt.unwrap();
-                vec![kv.0.to_vec(), kv.1.to_vec()]
-            })
-            .collect()
-    }
-
-    pub fn import_prefix(&mut self, mut export_prefix: Vec<Vec<Vec<u8>>>, overwrite: bool) {
-        if overwrite {
-            for kv in export_prefix.iter_mut() {
-                let v = kv.pop().expect("failed to get value from prefix export");
-                let k = kv.pop().expect("failed to get key from prefix export");
-                let _ = self
-                    .db
-                    .insert(k, v)
-                    .expect("failed to insert value during prefix import");
-            }
-        } else {
-            for kv in export_prefix.iter_mut() {
-                let v = kv.pop().expect("failed to get value from tree export");
-                let k = kv.pop().expect("failed to get key from tree export");
-                let old = self
-                    .db
-                    .insert(k, v)
-                    .expect("failed to insert value during tree import");
-                assert!(old.is_none(), "import is overwriting existing data");
-            }
-        }
-    }
-    */
-
-    /*  pub fn print_mktree(&self) {
-        let tree_lock = self.descriptor.tree.lock().unwrap();
-        let root = tree_lock.bag_peaks();
-
-        println!("root: {:?}", root);
-        println!("leaves: {:?}", tree_lock.leaves);
-        println!("total leaves: {:?}", tree_lock.leaves.len());
-    } 
-
-    pub fn get_page<'g>(&self, pid: u64, guard: &'g Guard) -> Option<sled::Node> {
-        self.db.export_node(pid,guard)
-    }
-
-    pub fn import_page(&self, pid: u64, node: sled::Node) -> Result<(), ()> {
-        if let Ok(()) = self.db.import_node(pid, node) {
-            Ok(())
-        } else {
-            Err(())
-        }
-    } */
-
     pub fn get_descriptor_inner(&self) -> SerializedTree {
         SerializedTree { tree: self.mk_tree.clone() }
     }
 
 }
 
-/* 
-pub async fn monitor_changes(state: Arc<Mutex<PrefixSet>>, mut subscriber: Subscriber) {
-    while let Some(event) = (&mut subscriber).await {
-        match event {
-           /* EventType::Split { lhs, rhs, parent } => {
-                let mut lock = state.lock().expect("failed to lock");
-                lock.insert(lhs);
-                lock.insert(rhs);
-                lock.insert(parent);
-            },
-            EventType::Merge { lhs, rhs, ..} => {
-                let mut lock = state.lock().expect("failed to lock");
-                lock.insert(lhs);
-                lock.insert(rhs);
-            },
-            EventType::Node(n) => {
-                let mut lock = state.lock().expect("failed to lock");
-                lock.insert(n);
-            }, */
-             EventType::Update(event) => {
-                let mut lock = state.lock().expect("failed to lock");
-                for (_,k,_) in event.iter() {
-                    lock.insert(k.as_ref());
-                }
-            }
-            _ => ()
-        }
-    }
-}
-*/

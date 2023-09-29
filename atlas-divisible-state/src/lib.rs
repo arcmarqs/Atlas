@@ -33,7 +33,7 @@ impl SerializedState {
 
         let bytes: Box<[u8]> = bincode::serialize(&kvs).expect("failed to serialize").into();
 
-        println!("bytes {:?}", bytes.len());
+        //println!("bytes {:?}", bytes.len());
         //hasher.update(&pid.to_be_bytes());
         hasher.update(&bytes);
 
@@ -176,13 +176,13 @@ impl DivisibleState for StateOrchestrator {
         let mut state_parts = Vec::new();
         let mut tree_lock = self.mk_tree.write().expect("failed to write");
         if !self.updates.is_empty() {
-            println!("{:?}", self.updates.len());
             let cur_seq = tree_lock.next_seqno();
             for prefix in self.updates.iter() {
                 let kv_iter = self.db.0.scan_prefix(prefix.as_ref());
                 let kv_pairs = kv_iter
                 .map(|kv| kv.map(|(k, v)| (k[PREFIX_LEN..].into(), v.deref().into())).expect("fail"))
                 .collect::<Box<_>>();
+            
                 let serialized_part = SerializedState::from_prefix(prefix.clone(),kv_pairs.as_ref(), cur_seq); 
                 tree_lock.insert_leaf(prefix.clone(),serialized_part.leaf.clone());
                 state_parts.push(serialized_part);      
