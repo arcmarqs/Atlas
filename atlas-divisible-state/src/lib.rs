@@ -1,4 +1,5 @@
 use std::collections::btree_map::Values;
+use std::mem;
 use std::ops::Deref;
 use std::sync::{Arc,RwLock};
 use std::time::Instant;
@@ -10,11 +11,11 @@ use atlas_common::{crypto::hash::Digest, ordering::Orderable};
 use atlas_execution::state::divisible_state::{
     DivisibleState, DivisibleStateDescriptor, PartDescription, PartId, StatePart,
 };
-use atlas_metrics::metrics::metric_duration;
+use atlas_metrics::metrics::{metric_duration, metric_store_count, metric_increment};
 use serde::{Deserialize, Serialize};
 use state_orchestrator::{StateOrchestrator, PREFIX_LEN, Prefix};
 use state_tree::{LeafNode,StateTree};
-use crate::metrics::CREATE_CHECKPOINT_TIME_ID;
+use crate::metrics::{CREATE_CHECKPOINT_TIME_ID, TOTAL_STATE_SIZE_ID, CHECKPOINT_SIZE_ID};
 
 pub mod state_orchestrator;
 pub mod state_tree;
@@ -148,16 +149,17 @@ impl DivisibleState for StateOrchestrator {
         self.get_descriptor_inner()
     }
 
-    fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> atlas_common::error::Result<()> {
+    fn accept_parts(&mut self, parts: Box<[Self::StatePart]>) -> atlas_common::error::Result<()> {
 
-        for part in parts {
+        for part in parts.iter() {
             let pairs = part.to_pairs();
             let prefix = part.id();
             //let mut batch = sled::Batch::default();            
             self.mk_tree.write().expect("failed to write").insert_leaf(part.leaf.id.clone(), part.leaf.clone());
 
             for (k,v) in pairs.iter() {
-              self.db.0.insert([prefix,k.as_ref()].concat(), v.as_ref()); 
+                let (k,v) = ([prefix,k.as_ref()].concat(), v.to_vec());
+              self.db.0.insert(&k,v); 
             }
 
             //self.db.apply_batch(batch).expect("failed to apply batch");
@@ -172,30 +174,35 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
         let checkpoint_start = Instant::now();
-       
-        let mut state_parts = Vec::new();
-        let mut tree_lock = self.mk_tree.write().expect("failed to write");
+       metric_store_count(CHECKPOINT_SIZE_ID, 0);
+       let mut state_parts = Vec::new();
+
         if !self.updates.is_empty() {
+            let mut tree_lock = self.mk_tree.write().expect("failed to write");
             let cur_seq = tree_lock.next_seqno();
-            for prefix in self.updates.iter() {
+
+            for prefix in self.updates.prefixes.drain() {
                 let kv_iter = self.db.0.scan_prefix(prefix.as_ref());
                 let kv_pairs = kv_iter
                 .map(|kv| kv.map(|(k, v)| (k[PREFIX_LEN..].into(), v.deref().into())).expect("fail"))
                 .collect::<Box<_>>();
             
                 let serialized_part = SerializedState::from_prefix(prefix.clone(),kv_pairs.as_ref(), cur_seq); 
+                metric_increment(CHECKPOINT_SIZE_ID, Some(mem::size_of_val(&serialized_part) as u64));
                 tree_lock.insert_leaf(prefix.clone(),serialized_part.leaf.clone());
                 state_parts.push(serialized_part);      
             } 
-
-            self.updates.clear();           
-
             tree_lock.calculate_tree();
         }
 
+        metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
+        metric_store_count(TOTAL_STATE_SIZE_ID, self.db.0.size_on_disk().expect("failed to read size") as usize);
+        println!("state size {:?}", self.db.0.size_on_disk().expect("failed to read size"));
+        println!("checkpoint size {:?}",  state_parts.iter().map(|f| mem::size_of_val(*&(&f).bytes()) as u64).sum::<u64>());
+
+
         println!("checkpoint finished {:?}", checkpoint_start.elapsed());
 
-        metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
         Ok((state_parts, self.get_descriptor()))
     }
 
@@ -203,7 +210,7 @@ impl DivisibleState for StateOrchestrator {
         Ok(self.mk_tree.read().expect("failed to read").get_seqno())
     }
 
-    fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {           
+   /* fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {           
         
         self.mk_tree.write().expect("failed to get write").calculate_tree();
     
@@ -214,5 +221,5 @@ impl DivisibleState for StateOrchestrator {
         self.db
             .0.verify_integrity()
             .wrapped(atlas_common::error::ErrorKind::Error)
-    }
+    } */
 }

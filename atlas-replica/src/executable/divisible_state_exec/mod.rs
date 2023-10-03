@@ -94,7 +94,7 @@ impl<S, A, NT> DivisibleStateExecutor<S, A, NT>
                                         executor.state.accept_parts(state_part).expect("Failed to install state parts into executor");
                                     }
                                     InstallStateMessage::Done => {
-                                        executor.state.finalize_transfer().expect("State is corrupted");
+                                        //executor.state.finalize_transfer().expect("State is corrupted");
                                         break
                                     }
                                 }

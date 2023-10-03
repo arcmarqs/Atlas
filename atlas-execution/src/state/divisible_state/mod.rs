@@ -9,7 +9,7 @@ use atlas_common::ordering::{Orderable, SeqNo};
 
 pub enum InstallStateMessage<S> where S: DivisibleState {
     /// We have received a part of the state
-    StatePart(Vec<S::StatePart>),
+    StatePart(Box<[S::StatePart]>),
     /// We can go back to polling the regular channel for new messages, as we are done installing state
     Done
 }
@@ -91,10 +91,10 @@ pub trait DivisibleState: Sized + Clone + Send + Sync {
     fn get_descriptor(&self) -> Self::StateDescriptor;
 
     /// Accept a number of parts into our current state
-    fn accept_parts(&mut self, parts: Vec<Self::StatePart>) -> Result<()>;
+    fn accept_parts(&mut self, parts: Box<[Self::StatePart]>) -> Result<()>;
 
     // Here we should perform any checks to see if the database is valid
-    fn finalize_transfer(&mut self) -> Result<()>;
+    //fn finalize_transfer(&mut self) -> Result<()>;
 
     /// Get the parts corresponding to the provided part descriptions
     fn get_parts(&mut self) -> Result<(Vec<Self::StatePart>,Self::StateDescriptor)>;

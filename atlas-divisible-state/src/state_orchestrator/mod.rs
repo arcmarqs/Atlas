@@ -1,14 +1,15 @@
-use std::{collections::{BTreeSet, btree_set::Iter}, sync::{Arc, RwLock}};
+use std::{sync::{Arc, RwLock}};
 
 use crate::{
     state_tree::StateTree,
     SerializedTree,
 };
+use atlas_common::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, Mode, Subscriber, IVec,};
 pub const PREFIX_LEN: usize = 7;
 
-#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize,Hash)]
 pub struct Prefix(pub [u8;PREFIX_LEN]);
 
 impl Prefix {
@@ -29,13 +30,13 @@ impl Prefix {
 // A bitmap that registers changed prefixes over a set of keys
 #[derive(Debug,Default,Clone)]
 pub struct PrefixSet {
-    pub prefixes: BTreeSet<Prefix>,
+    pub prefixes: HashSet<Prefix>,
 }
 
 impl PrefixSet {
     pub fn new() -> PrefixSet {
         Self { 
-            prefixes: BTreeSet::default(), 
+            prefixes: HashSet::default(), 
         }
     }
 
@@ -66,10 +67,6 @@ impl PrefixSet {
         self.prefixes.len()
     }
 
-    pub fn iter(&self) -> Iter<'_, Prefix> {
-        self.prefixes.iter()
-    }
-
     pub fn clear(&mut self) {
         self.prefixes.clear();
        // self.prefix_len = 0;
@@ -90,7 +87,7 @@ pub struct DbWrapper(pub Arc<Db>);
 
 impl Default for DbWrapper {
     fn default() -> Self {
-        Self (Arc::new(Config::new().open().expect("failed to open")) )
+        Self (Arc::new(Config::new().temporary(true).open().expect("failed to open")) )
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +104,7 @@ impl StateOrchestrator {
     pub fn new(path: &str) -> Self {
         let conf = Config::new()
         .mode(Mode::HighThroughput)
+        .temporary(true)
         .path(path);
 
         let db = conf.open().unwrap();
