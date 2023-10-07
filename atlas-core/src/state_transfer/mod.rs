@@ -34,6 +34,7 @@ pub struct Checkpoint<S> {
     seq: SeqNo,
     app_state: S,
     digest: Digest,
+    size: usize,
 }
 
 impl<S> Orderable for Checkpoint<S> {
@@ -45,19 +46,21 @@ impl<S> Orderable for Checkpoint<S> {
 }
 
 impl<S> Checkpoint<S> {
-    pub fn new(seq: SeqNo, app_state: S, digest: Digest) -> Arc<ReadOnly<Self>> {
+    pub fn new(seq: SeqNo, app_state: S, digest: Digest, size: usize) -> Arc<ReadOnly<Self>> {
         Arc::new(ReadOnly::new(Self {
             seq,
             app_state,
             digest,
+            size,
         }))
     }
 
-    pub fn new_simple(seq: SeqNo, app_state: S, digest: Digest) -> Self {
+    pub fn new_simple(seq: SeqNo, app_state: S, digest: Digest, size: usize) -> Self {
         Self {
             seq,
             app_state,
             digest,
+            size,
         }
     }
 
@@ -77,6 +80,10 @@ impl<S> Checkpoint<S> {
     /// Returns the inner values within this local checkpoint.
     pub fn into_inner(self) -> (SeqNo, S, Digest) {
         (self.seq, self.app_state, self.digest)
+    }
+
+    pub fn size(&self) -> usize {
+        self.size
     }
 }
 

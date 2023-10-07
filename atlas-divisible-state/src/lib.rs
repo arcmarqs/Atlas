@@ -150,12 +150,14 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn accept_parts(&mut self, parts: Box<[Self::StatePart]>) -> atlas_common::error::Result<()> {
+        let mut tree_lock = self.mk_tree.write().expect("failed to write");
 
         for part in parts.iter() {
             let pairs = part.to_pairs();
             let prefix = part.id();
-            //let mut batch = sled::Batch::default();            
-            self.mk_tree.write().expect("failed to write").insert_leaf(part.leaf.id.clone(), part.leaf.clone());
+            //let mut batch = sled::Batch::default();    
+        
+            tree_lock.insert_leaf(part.leaf.id.clone(), part.leaf.clone());
 
             for (k,v) in pairs.iter() {
                 let (k,v) = ([prefix,k.as_ref()].concat(), v.to_vec());
@@ -166,6 +168,7 @@ impl DivisibleState for StateOrchestrator {
           
         }
         //let _ = self.db.flush();
+        tree_lock.updated = true;
 
         Ok(())
     }
@@ -173,27 +176,31 @@ impl DivisibleState for StateOrchestrator {
     fn get_parts(
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
-        let checkpoint_start = Instant::now();
        metric_store_count(CHECKPOINT_SIZE_ID, 0);
        let mut state_parts = Vec::new();
 
-        if !self.updates.is_empty() {
-            let mut tree_lock = self.mk_tree.write().expect("failed to write");
-            let cur_seq = tree_lock.next_seqno();
+        let mut tree_lock = self.mk_tree.write().expect("failed to write");
 
-            for prefix in self.updates.prefixes.drain() {
-                let kv_iter = self.db.0.scan_prefix(prefix.as_ref());
-                let kv_pairs = kv_iter
-                .map(|kv| kv.map(|(k, v)| (k[PREFIX_LEN..].into(), v.deref().into())).expect("fail"))
-                .collect::<Box<_>>();
-            
-                let serialized_part = SerializedState::from_prefix(prefix.clone(),kv_pairs.as_ref(), cur_seq); 
-                metric_increment(CHECKPOINT_SIZE_ID, Some(mem::size_of_val(&serialized_part) as u64));
-                tree_lock.insert_leaf(prefix.clone(),serialized_part.leaf.clone());
-                state_parts.push(serialized_part);      
-            } 
-            tree_lock.calculate_tree();
+        let checkpoint_start = Instant::now();
+        let cur_seq = tree_lock.next_seqno();
+
+        for prefix in self.updates.prefixes.drain() {
+            tree_lock.updated= true;
+            let kv_iter = self.db.0.scan_prefix(prefix.as_ref());
+            let kv_pairs = kv_iter
+            .map(|kv| kv.map(|(k, v)| (k[PREFIX_LEN..].into(), v.deref().into())).expect("fail"))
+            .collect::<Box<_>>();
+        
+            let serialized_part = SerializedState::from_prefix(prefix.clone(),kv_pairs.as_ref(), cur_seq); 
+            metric_increment(CHECKPOINT_SIZE_ID, Some(mem::size_of_val(&serialized_part) as u64));
+            tree_lock.insert_leaf(prefix.clone(),serialized_part.leaf.clone());
+            state_parts.push(serialized_part);      
+        } 
+
+        if tree_lock.updated {
+        tree_lock.calculate_tree();
         }
+        
 
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
         metric_store_count(TOTAL_STATE_SIZE_ID, self.db.0.size_on_disk().expect("failed to read size") as usize);
