@@ -177,6 +177,8 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
        metric_store_count(CHECKPOINT_SIZE_ID, 0);
+       metric_store_count(TOTAL_STATE_SIZE_ID, 0);
+
        let mut state_parts = Vec::new();
 
         let mut tree_lock = self.mk_tree.write().expect("failed to write");
@@ -203,7 +205,7 @@ impl DivisibleState for StateOrchestrator {
         
 
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
-        metric_store_count(TOTAL_STATE_SIZE_ID, self.db.0.size_on_disk().expect("failed to read size") as usize);
+        metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to read size")));
         println!("state size {:?}", self.db.0.size_on_disk().expect("failed to read size"));
         println!("checkpoint size {:?}",  state_parts.iter().map(|f| mem::size_of_val(*&(&f).bytes()) as u64).sum::<u64>());
 
