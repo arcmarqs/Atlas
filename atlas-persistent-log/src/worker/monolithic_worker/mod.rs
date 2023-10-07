@@ -161,7 +161,7 @@ pub(crate) fn read_mon_state<S>(db: &KVDB) -> Result<Option<Checkpoint<S>>> wher
             let size = state.size();
             let digest = Digest::from_bytes(digest.as_slice())?;
 
-            Ok(Some(Checkpoint::new_simple(seq_no, state, digest,size)))
+            Ok(Some(Checkpoint::new_simple(seq_no, state, digest, size)))
         }
         _ => {
             Ok(None)

@@ -146,7 +146,8 @@ impl<RP, S, A, OP, ST, LT, NT, PL> MonReplica<RP, S, A, OP, ST, LT, NT, PL>
 
             match result {
                 Ok(digest) => {
-                    let checkpoint = Checkpoint::new(seq, appstate, digest);
+                    let size = appstate.size();
+                    let checkpoint = Checkpoint::new(seq, appstate, digest,size);
 
                     return_tx.send(checkpoint).unwrap();
                 }
