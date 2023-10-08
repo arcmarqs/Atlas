@@ -221,8 +221,8 @@ impl DivisibleState for StateOrchestrator {
 
         if self.updates.is_empty() {
             metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
-            let first: usize = self.db.0.first().expect("failed to get first").map(|(k,v)| k.len() + v.len()).expect("failed to sum");
-            metric_increment(TOTAL_STATE_SIZE_ID, Some((self.db.0.len() * first) as u64));
+            metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to get size")));
+
             return Ok((vec![], self.get_descriptor()))
         }
 
@@ -268,8 +268,7 @@ impl DivisibleState for StateOrchestrator {
         self.mk_tree.write().expect("failed to write").calculate_tree();
             
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
-        let first: usize = self.db.0.first().expect("failed to get first").map(|(k,v)| k.len() + v.len()).expect("failed to sum");
-        metric_increment(TOTAL_STATE_SIZE_ID, Some((self.db.0.len() * first) as u64));
+        metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to get size")));
 
       //  println!("checkpoint finished {:?}", checkpoint_start.elapsed());
        //println!("state size {:?}", self.db.0.expect("failed to read size"));
@@ -286,8 +285,8 @@ impl DivisibleState for StateOrchestrator {
         
         self.mk_tree.write().expect("failed to get write").calculate_tree();
         
-        let first: usize = self.db.0.first().expect("failed to get first").map(|(k,v)| k.len() + v.len()).expect("failed to sum");
-        metric_increment(TOTAL_STATE_SIZE_ID, Some((self.db.0.len() * first) as u64));
+        metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to get size")));
+
         //println!("finished st {:?}", self.get_descriptor());
 
         //println!("Verifying integrity");
