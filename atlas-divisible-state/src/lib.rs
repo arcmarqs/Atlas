@@ -13,11 +13,12 @@ use atlas_execution::state::divisible_state::{
     DivisibleState, DivisibleStateDescriptor, PartDescription, PartId, StatePart,
 };
 use atlas_metrics::metrics::{metric_duration, metric_store_count, metric_increment};
+use metrics::CHECKPOINT_SIZE_ID;
 use serde::{Deserialize, Serialize};
 use sled::IVec;
 use state_orchestrator::{StateOrchestrator, PREFIX_LEN, Prefix};
 use state_tree::{LeafNode,StateTree};
-use crate::metrics::{CREATE_CHECKPOINT_TIME_ID, CHECKPOINT_SIZE_ID};
+use crate::metrics::{CREATE_CHECKPOINT_TIME_ID};
 
 pub mod state_orchestrator;
 pub mod state_tree;
@@ -191,7 +192,7 @@ impl DivisibleState for StateOrchestrator {
 
             for (k,v) in pairs.iter() {
                 let (k,v) = ([prefix,k.as_ref()].concat(), v.to_vec());
-                metric_increment(TOTAL_STATE_SIZE_ID, Some((k.len() + v.len()) as u64));
+                //metric_increment(TOTAL_STATE_SIZE_ID, Some((k.len() + v.len()) as u64));
 
                 batch.insert(k,v); 
             }   
