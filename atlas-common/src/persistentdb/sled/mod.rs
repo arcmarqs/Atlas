@@ -110,7 +110,7 @@ impl SledKVDB {
         }
 
         let ret = handle.apply_batch(batch).wrapped(ErrorKind::Persistentdb);
-        
+        handle.flush_async();
         ret
     }
 
