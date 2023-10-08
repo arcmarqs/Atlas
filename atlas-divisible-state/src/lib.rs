@@ -24,7 +24,7 @@ pub mod state_tree;
 
 pub mod metrics;
 
-const CHECKPOINT_THREADS: usize = 8;
+const CHECKPOINT_THREADS: usize = 6;
 
 fn split_evenly<T>(slice: &[T], n: usize) -> impl Iterator<Item = &[T]> {
     struct Iter<'a, I> {
@@ -191,6 +191,8 @@ impl DivisibleState for StateOrchestrator {
 
             for (k,v) in pairs.iter() {
                 let (k,v) = ([prefix,k.as_ref()].concat(), v.to_vec());
+                metric_increment(TOTAL_STATE_SIZE_ID, Some((k.len() + v.len()) as u64));
+
                 batch.insert(k,v); 
             }   
         }
@@ -207,11 +209,11 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
        metric_store_count(CHECKPOINT_SIZE_ID, 0);
-       metric_store_count(TOTAL_STATE_SIZE_ID, 0);
 
         let process_part = |(k,v) : (IVec,IVec)| {
 
             metric_increment(CHECKPOINT_SIZE_ID, Some((k.len() + v.len()) as u64));
+            metric_increment(TOTAL_STATE_SIZE_ID, Some((k.len() + v.len()) as u64));
 
             (k[PREFIX_LEN..].into(), v.deref().into())
         };
@@ -220,7 +222,6 @@ impl DivisibleState for StateOrchestrator {
 
         if self.updates.is_empty() {
             metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
-            metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to read size")));
             return Ok((vec![], self.get_descriptor()))
         }
 
@@ -267,7 +268,6 @@ impl DivisibleState for StateOrchestrator {
             
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
       //  println!("checkpoint finished {:?}", checkpoint_start.elapsed());
-        metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to read size")));
        // println!("state size {:?}", self.db.0.size_on_disk().expect("failed to read size"));
       //  println!("checkpoint size {:?}",  state_parts.iter().map(|f| mem::size_of_val(*&(&f).bytes()) as u64).sum::<u64>());
 
