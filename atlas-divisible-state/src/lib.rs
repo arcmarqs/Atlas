@@ -209,6 +209,7 @@ impl DivisibleState for StateOrchestrator {
         &mut self,
     ) -> Result<(Vec<SerializedState>, SerializedTree), atlas_common::error::Error> {
        metric_store_count(CHECKPOINT_SIZE_ID, 0);
+       metric_store_count(TOTAL_STATE_SIZE_ID, 0);
 
         let process_part = |(k,v) : (IVec,IVec)| {
 
@@ -282,7 +283,8 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {           
-        
+        metric_store_count(TOTAL_STATE_SIZE_ID, 0);
+
         self.mk_tree.write().expect("failed to get write").calculate_tree();
         
         metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to get size")));
