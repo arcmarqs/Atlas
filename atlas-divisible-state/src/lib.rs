@@ -13,7 +13,7 @@ use atlas_execution::state::divisible_state::{
     DivisibleState, DivisibleStateDescriptor, PartDescription, PartId, StatePart,
 };
 use atlas_metrics::metrics::{metric_duration, metric_store_count, metric_increment};
-use metrics::CHECKPOINT_SIZE_ID;
+use metrics::{CHECKPOINT_SIZE_ID, TOTAL_STATE_SIZE_ID};
 use serde::{Deserialize, Serialize};
 use sled::IVec;
 use state_orchestrator::{StateOrchestrator, PREFIX_LEN, Prefix};
@@ -25,7 +25,7 @@ pub mod state_tree;
 
 pub mod metrics;
 
-const CHECKPOINT_THREADS: usize = 6;
+const CHECKPOINT_THREADS: usize = 8;
 
 fn split_evenly<T>(slice: &[T], n: usize) -> impl Iterator<Item = &[T]> {
     struct Iter<'a, I> {
@@ -181,7 +181,7 @@ impl DivisibleState for StateOrchestrator {
     }
 
     fn accept_parts(&mut self, parts: Box<[Self::StatePart]>) -> atlas_common::error::Result<()> {
-        let mut batch = sled::Batch::default();    
+        let mut batch = sled::Batch::default();
         let mut tree_lock = self.mk_tree.write().expect("failed to write");
 
         for part in parts.iter() {
@@ -192,7 +192,6 @@ impl DivisibleState for StateOrchestrator {
 
             for (k,v) in pairs.iter() {
                 let (k,v) = ([prefix,k.as_ref()].concat(), v.to_vec());
-                //metric_increment(TOTAL_STATE_SIZE_ID, Some((k.len() + v.len()) as u64));
 
                 batch.insert(k,v); 
             }   
@@ -222,6 +221,8 @@ impl DivisibleState for StateOrchestrator {
 
         if self.updates.is_empty() {
             metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
+            let first: usize = self.db.0.first().expect("failed to get first").map(|(k,v)| k.len() + v.len()).expect("failed to sum");
+            metric_increment(TOTAL_STATE_SIZE_ID, Some((self.db.0.len() * first) as u64));
             return Ok((vec![], self.get_descriptor()))
         }
 
@@ -267,7 +268,8 @@ impl DivisibleState for StateOrchestrator {
         self.mk_tree.write().expect("failed to write").calculate_tree();
             
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
-        //metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk() as u64));
+        let first: usize = self.db.0.first().expect("failed to get first").map(|(k,v)| k.len() + v.len()).expect("failed to sum");
+        metric_increment(TOTAL_STATE_SIZE_ID, Some((self.db.0.len() * first) as u64));
 
       //  println!("checkpoint finished {:?}", checkpoint_start.elapsed());
        //println!("state size {:?}", self.db.0.expect("failed to read size"));
@@ -283,7 +285,9 @@ impl DivisibleState for StateOrchestrator {
     fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {           
         
         self.mk_tree.write().expect("failed to get write").calculate_tree();
-    
+        
+        let first: usize = self.db.0.first().expect("failed to get first").map(|(k,v)| k.len() + v.len()).expect("failed to sum");
+        metric_increment(TOTAL_STATE_SIZE_ID, Some((self.db.0.len() * first) as u64));
         //println!("finished st {:?}", self.get_descriptor());
 
         //println!("Verifying integrity");
