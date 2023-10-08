@@ -15,7 +15,7 @@ use crate::metric::{EXECUTION_LATENCY_TIME_ID, EXECUTION_TIME_TAKEN_ID};
 use crate::server::client_replier::ReplyHandle;
 
 const EXECUTING_BUFFER: usize = 16384;
-const STATE_BUFFER: usize = 128;
+const STATE_BUFFER: usize = 2048;
 
 pub struct DivisibleStateExecutor<S, A, NT>
     where S: DivisibleState + 'static,
