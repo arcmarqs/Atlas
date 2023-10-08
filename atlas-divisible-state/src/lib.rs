@@ -195,7 +195,6 @@ impl DivisibleState for StateOrchestrator {
             }   
         }
 
-        tree_lock.updated = true;
         drop(tree_lock);
         self.db.0.apply_batch(batch).expect("failed to apply batch");
         
@@ -216,12 +215,18 @@ impl DivisibleState for StateOrchestrator {
 
             (k[PREFIX_LEN..].into(), v.deref().into())
         };
-        let state_parts = Arc::new(Mutex::new(Vec::new()));
-
-        let mut tree_lock = self.mk_tree.write().expect("failed to write");
 
         let checkpoint_start = Instant::now();
-        let cur_seq = tree_lock.next_seqno();
+
+        if self.updates.is_empty() {
+            metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
+            metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to read size")));
+            return Ok((vec![], self.get_descriptor()))
+        }
+
+        let state_parts = Arc::new(Mutex::new(Vec::new()));
+
+        let cur_seq = self.mk_tree.write().expect("failed to write").next_seqno();
         let parts = self.updates.prefixes.drain().collect::<Vec<_>>();
     
         let chunks = split_evenly(parts.clone().as_slice(), CHECKPOINT_THREADS).map(|chunk| chunk.to_owned()).collect::<Vec<_>>();
@@ -230,7 +235,7 @@ impl DivisibleState for StateOrchestrator {
         for chunk in chunks {
             let db_handle = self.db.0.clone();
             let state_parts = state_parts.clone();
-
+            let tree = self.mk_tree.clone();
             let handle = thread::spawn(move || {
                 let mut local_state_parts = Vec::new();
 
@@ -244,7 +249,8 @@ impl DivisibleState for StateOrchestrator {
                         local_state_parts.push(serialized_part);
                     } 
 
-                    state_parts.lock().expect("failed to lock").extend_from_slice(local_state_parts.as_slice());  
+                    tree.write().expect("failed to write").leaves.extend(local_state_parts.iter().map(|part| (Prefix::new(part.id()), part.leaf.clone())));
+                    state_parts.lock().expect("failed to lock").extend(local_state_parts.into_iter());  
             });
 
             handles.push(handle);
@@ -257,22 +263,13 @@ impl DivisibleState for StateOrchestrator {
         let parts_lock = Arc::try_unwrap(state_parts).expect("Lock still has multiple owners");
         let parts = parts_lock.into_inner().expect("Lock still has multiple owners");
 
-        if !parts.is_empty() {
-            tree_lock.updated = true;
-            tree_lock.leaves.extend(parts.iter().map(|part| (Prefix::new(part.id()), part.leaf.clone())));       
-        } 
-        
-        if tree_lock.updated {
-            tree_lock.calculate_tree();
-        }
-
+        self.mk_tree.write().expect("failed to write").calculate_tree();
+            
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
       //  println!("checkpoint finished {:?}", checkpoint_start.elapsed());
         metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to read size")));
        // println!("state size {:?}", self.db.0.size_on_disk().expect("failed to read size"));
       //  println!("checkpoint size {:?}",  state_parts.iter().map(|f| mem::size_of_val(*&(&f).bytes()) as u64).sum::<u64>());
-
-
 
         Ok((parts, self.get_descriptor()))
     }
@@ -281,16 +278,17 @@ impl DivisibleState for StateOrchestrator {
         Ok(self.mk_tree.read().expect("failed to read").get_seqno())
     }
 
-   /* fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {           
+    fn finalize_transfer(&mut self) -> atlas_common::error::Result<()> {           
         
         self.mk_tree.write().expect("failed to get write").calculate_tree();
     
         //println!("finished st {:?}", self.get_descriptor());
 
-        println!("Verifying integrity");
+        //println!("Verifying integrity");
 
-        self.db
-            .0.verify_integrity()
-            .wrapped(atlas_common::error::ErrorKind::Error)
-    } */
+        //self.db
+         //   .0.verify_integrity()
+          //  .wrapped(atlas_common::error::ErrorKind::Error)
+        Ok(())
+    } 
 }

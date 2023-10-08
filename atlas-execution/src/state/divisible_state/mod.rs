@@ -94,7 +94,7 @@ pub trait DivisibleState: Sized + Clone + Send + Sync {
     fn accept_parts(&mut self, parts: Box<[Self::StatePart]>) -> Result<()>;
 
     // Here we should perform any checks to see if the database is valid
-    //fn finalize_transfer(&mut self) -> Result<()>;
+    fn finalize_transfer(&mut self) -> Result<()>;
 
     /// Get the parts corresponding to the provided part descriptions
     fn get_parts(&mut self) -> Result<(Vec<Self::StatePart>,Self::StateDescriptor)>;
