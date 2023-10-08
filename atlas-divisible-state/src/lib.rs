@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use sled::IVec;
 use state_orchestrator::{StateOrchestrator, PREFIX_LEN, Prefix};
 use state_tree::{LeafNode,StateTree};
-use crate::metrics::{CREATE_CHECKPOINT_TIME_ID, TOTAL_STATE_SIZE_ID, CHECKPOINT_SIZE_ID};
+use crate::metrics::{CREATE_CHECKPOINT_TIME_ID, CHECKPOINT_SIZE_ID};
 
 pub mod state_orchestrator;
 pub mod state_tree;
@@ -213,7 +213,6 @@ impl DivisibleState for StateOrchestrator {
         let process_part = |(k,v) : (IVec,IVec)| {
 
             metric_increment(CHECKPOINT_SIZE_ID, Some((k.len() + v.len()) as u64));
-            metric_increment(TOTAL_STATE_SIZE_ID, Some((k.len() + v.len()) as u64));
 
             (k[PREFIX_LEN..].into(), v.deref().into())
         };
@@ -267,8 +266,10 @@ impl DivisibleState for StateOrchestrator {
         self.mk_tree.write().expect("failed to write").calculate_tree();
             
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
+        //metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk() as u64));
+
       //  println!("checkpoint finished {:?}", checkpoint_start.elapsed());
-       // println!("state size {:?}", self.db.0.size_on_disk().expect("failed to read size"));
+       //println!("state size {:?}", self.db.0.expect("failed to read size"));
       //  println!("checkpoint size {:?}",  state_parts.iter().map(|f| mem::size_of_val(*&(&f).bytes()) as u64).sum::<u64>());
 
         Ok((parts, self.get_descriptor()))

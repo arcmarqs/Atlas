@@ -196,4 +196,8 @@ impl RocksKVDB {
 
         Ok(Box::new(iterator.map(|r| r.wrapped(ErrorKind::PersistentdbRocksdb))))
     }
+
+    pub fn size(&self) -> usize {
+        self.db.size()
+    }
 }

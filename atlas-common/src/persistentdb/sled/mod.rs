@@ -190,4 +190,8 @@ impl SledKVDB {
                 .wrapped(ErrorKind::Persistentdb)
         })))
     }
+
+    pub fn size(&self) -> u64 {
+        self.db.size_on_disk().expect("failed to read size")
+    }
 }

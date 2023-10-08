@@ -210,4 +210,9 @@ impl KVDB {
     {
         self.inner.iter_range(prefix, start, end)
     }
+
+    pub fn size(&self) -> u64 {
+        self.inner.size()
+    }
+ 
 }
