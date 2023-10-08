@@ -15,7 +15,7 @@ impl SledKVDB {
         let conf = Config::default()
         .mode(sled::Mode::HighThroughput)
         .path(db_location)
-        .cache_capacity(2*1024*1024*1024);
+        .cache_capacity(1*1024*1024*1024);
 
         let db = conf.open().unwrap();
 
@@ -111,8 +111,6 @@ impl SledKVDB {
 
         let ret = handle.apply_batch(batch).wrapped(ErrorKind::Persistentdb);
         
-        handle.flush();
-
         ret
     }
 
