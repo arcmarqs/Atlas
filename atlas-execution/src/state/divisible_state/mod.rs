@@ -58,6 +58,8 @@ pub trait StatePart<S: DivisibleState + ?Sized> {
 
     fn length(&self) -> usize;
 
+    fn size(&self) -> u64;
+
     fn bytes(&self) -> &[u8];
 
 }

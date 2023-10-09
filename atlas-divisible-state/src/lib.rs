@@ -56,21 +56,23 @@ fn split_evenly<T>(slice: &[T], n: usize) -> impl Iterator<Item = &[T]> {
 #[derive(Debug,Clone, Serialize, Deserialize)]
 pub struct SerializedState {
     leaf: Arc<LeafNode>,
+    size: u64,
     bytes: Box<[u8]>,
 }
 
 impl SerializedState {
     pub fn from_prefix(prefix: Prefix, kvs: &[(Box<[u8]>,Box<[u8]>)], seq: SeqNo) -> Self {
-        let mut hasher = Context::new();
-
+        let size = (kvs.len() * mem::size_of_val(&kvs[0])) as u64;
         let bytes: Box<[u8]> = bincode::serialize(&kvs).expect("failed to serialize").into();
 
         //println!("bytes {:?}", bytes.len());
         //hasher.update(&pid.to_be_bytes());
+        let mut hasher = Context::new();
         hasher.update(&bytes);
 
         Self {
             bytes,
+            size,
             leaf: LeafNode::new(
                 seq,
                 prefix,
@@ -106,6 +108,10 @@ impl StatePart<StateOrchestrator> for SerializedState {
 
     fn length(&self) -> usize {
         self.bytes.len()
+    }
+
+    fn size(&self) -> u64 {
+        self.size
     }
 
     fn bytes(&self) -> &[u8] {
@@ -269,7 +275,6 @@ impl DivisibleState for StateOrchestrator {
         self.mk_tree.write().expect("failed to write").calculate_tree();
             
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
-        metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to get size")));
 
       //  println!("checkpoint finished {:?}", checkpoint_start.elapsed());
        //println!("state size {:?}", self.db.0.expect("failed to read size"));
