@@ -7,7 +7,7 @@ use crate::{
 use atlas_common::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, Mode, Subscriber, IVec,};
-pub const PREFIX_LEN: usize = 7;
+pub const PREFIX_LEN: usize = 6;
 
 #[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize,Hash)]
 pub struct Prefix(pub [u8;PREFIX_LEN]);
@@ -145,7 +145,9 @@ impl StateOrchestrator {
     }
 
     pub fn get_descriptor_inner(&self) -> SerializedTree {
-        SerializedTree { tree: self.mk_tree.clone() }
+        let lock = self.mk_tree.read().expect("failed to read");
+    
+        SerializedTree { digest: lock.root, seqno: lock.seqno, leaves: lock.leaves.values().cloned().collect::<Vec<_>>()  }
     }
 
 }

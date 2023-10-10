@@ -124,20 +124,24 @@ impl StatePart<StateOrchestrator> for SerializedState {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedTree {
-    tree: Arc<RwLock<StateTree>>
+    digest: Option<Digest>,
+    seqno: SeqNo,
+    leaves: Vec<Arc<LeafNode>>,
 }
 
 impl SerializedTree {
-    pub fn new(tree: Arc<RwLock<StateTree>>) -> Self {
+    pub fn new(digest: Option<Digest>, seqno:SeqNo, leaves: Vec<Arc<LeafNode>>) -> Self {
         Self {
-            tree
+            digest,
+            seqno,
+            leaves,
         }
     }
 }
 
 impl PartialEq for SerializedTree {
     fn eq(&self, other: &Self) -> bool {
-        self.tree.read().expect("failed to read").root.eq(&other.tree.read().expect("failed to read").root)
+        self.digest == other.digest
     }
 
     fn ne(&self, other: &Self) -> bool {
@@ -147,17 +151,17 @@ impl PartialEq for SerializedTree {
 
 impl Orderable for SerializedTree {
     fn sequence_number(&self) -> ordering::SeqNo {
-        self.tree.read().expect("failed to read").seqno
+        self.seqno
     }
 }
 
 impl DivisibleStateDescriptor<StateOrchestrator> for SerializedTree {
     fn parts(&self) -> Box<[Arc<LeafNode>]>{
-        self.tree.read().expect("failed to read").leaves.values().cloned().collect::<Box<_>>()
+        self.leaves.iter().cloned().collect()
     }
 
     fn get_digest(&self) -> Option<Digest> {
-        self.tree.read().expect("failed to read").root
+        self.digest
     }
 }
 
