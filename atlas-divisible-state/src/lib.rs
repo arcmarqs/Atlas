@@ -283,6 +283,8 @@ impl DivisibleState for StateOrchestrator {
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
 
         println!("number of parts {:?}", parts.len());
+        println!("leaves {:?}", self.mk_tree.read().expect("failed to write").leaves.len());
+
        //println!("state size {:?}", self.db.0.expect("failed to read size"));
       //  println!("checkpoint size {:?}",  state_parts.iter().map(|f| mem::size_of_val(*&(&f).bytes()) as u64).sum::<u64>());
 

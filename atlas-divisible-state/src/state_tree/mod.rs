@@ -53,10 +53,6 @@ impl StateTree {
         self.leaves.insert(pid, leaf);
     }
 
-    pub fn values(&self) -> impl Iterator<Item=&LeafNode> + '_ {
-        self.leaves.iter().map(|(k,v)| v.as_ref())
-    }
-
     pub fn calculate_tree(&mut self) {
         let mut peaks: BTreeMap<u32,Digest> = BTreeMap::new();       
         for leaf in self.leaves.values() {
