@@ -13,7 +13,7 @@ impl SledKVDB {
         T: AsRef<Path>,
     {
         let conf = Config::default()
-        .mode(sled::Mode::HighThroughput)
+        .mode(sled::Mode::LowSpace)
         .path(db_location)
         .cache_capacity(3*1024*1024*1024);
 
