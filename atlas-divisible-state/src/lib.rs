@@ -253,7 +253,9 @@ impl DivisibleState for StateOrchestrator {
                         let kv_pairs  = kv_iter
                         .map(|kv| kv.map(process_part).expect("failed to process part") )
                         .collect::<Box<_>>();
-
+                        if kv_pairs.is_empty() {
+                            continue;
+                        }
                         let serialized_part = SerializedState::from_prefix(prefix.clone(),kv_pairs.as_ref(), cur_seq);
                         local_state_parts.push(serialized_part);
                     } 
