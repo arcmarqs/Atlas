@@ -128,8 +128,12 @@ impl StateOrchestrator {
     }
 
     pub fn remove(&mut self, key: &[u8])-> Option<IVec> {
-        self.updates.insert(&key);
-        self.db.0.remove(key).expect("error removing key")
+        if let Some(res) = self.db.0.remove(key).expect("error removing key") {
+            self.updates.insert(&key);
+            Some(res)
+        } else {
+            None
+        }
     }
 
     pub fn get(&self, key: &[u8]) -> Option<IVec> {
