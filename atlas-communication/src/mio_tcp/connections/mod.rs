@@ -30,7 +30,7 @@ use crate::mio_tcp::connections::conn_util::{ReadingBuffer, WritingBuffer};
 
 pub type NetworkSerializedMessage = (WireMessage);
 
-pub const SEND_QUEUE_SIZE: usize = 1024;
+pub const SEND_QUEUE_SIZE: usize = 2048;
 
 pub struct Connections<NI, RM, PM>
     where NI: NetworkInformationProvider + 'static,
