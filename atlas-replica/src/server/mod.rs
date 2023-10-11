@@ -49,7 +49,7 @@ pub mod monolithic_server;
 pub mod divisible_state_server;
 // pub mod rq_finalizer;
 
-const REPLICA_MESSAGE_CHANNEL: usize = 1024;
+const REPLICA_MESSAGE_CHANNEL: usize = 2048;
 pub const REPLICA_WAIT_TIME: Duration = Duration::from_millis(1000);
 
 pub type StateTransferDone = Option<SeqNo>;
