@@ -7,7 +7,7 @@ use crate::{
 use atlas_common::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use sled::{Config, Db, Mode, Subscriber, IVec,};
-pub const PREFIX_LEN: usize = 2;
+pub const PREFIX_LEN: usize = 3;
 
 #[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Serialize, Deserialize,Hash)]
 pub struct Prefix(pub [u8;PREFIX_LEN]);
