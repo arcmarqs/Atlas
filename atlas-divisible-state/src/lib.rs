@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use sled::IVec;
 use state_orchestrator::{StateOrchestrator, PREFIX_LEN, Prefix};
 use state_tree::{LeafNode,StateTree};
-use crate::metrics::{CREATE_CHECKPOINT_TIME_ID};
+use crate::metrics::CREATE_CHECKPOINT_TIME_ID;
 
 pub mod state_orchestrator;
 pub mod state_tree;

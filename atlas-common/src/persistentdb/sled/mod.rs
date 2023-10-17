@@ -15,7 +15,7 @@ impl SledKVDB {
         let conf = Config::default()
         .mode(sled::Mode::LowSpace)
         .path(db_location)
-        .cache_capacity(3*1024*1024*1024);
+        .cache_capacity(4*1024*1024*1024);
 
         let db = conf.open().unwrap();
 
