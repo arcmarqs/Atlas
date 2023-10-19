@@ -281,6 +281,7 @@ impl DivisibleState for StateOrchestrator {
         self.mk_tree.write().expect("failed to write").calculate_tree();
             
         metric_duration(CREATE_CHECKPOINT_TIME_ID, checkpoint_start.elapsed());
+        metric_increment(TOTAL_STATE_SIZE_ID, Some(self.db.0.size_on_disk().expect("failed to get size")));
 
        // println!("number of parts {:?}", parts.len());
        // println!("leaves {:?}", self.mk_tree.read().expect("failed to write").leaves.len());
