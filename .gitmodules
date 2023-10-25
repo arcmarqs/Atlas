@@ -37,3 +37,6 @@
 [submodule "Atlas-Decision-Log"]
 	path = Atlas-Decision-Log
 	url = https://github.com/nuno1212s/Atlas-Decision-Log.git
+[submodule "Atlas-Divisible-State"]
+	path = Atlas-Divisible-State
+	url = https://github.com/arcmarqs/Atlas-Divisible-State.git
