@@ -22,7 +22,8 @@ members = [
     "Atlas-Persistent-Log",
     "Atlas-Log-Transfer",
     "Atlas-SMR-Application",
-    "Atlas-View-Transfer"
+    "Atlas-View-Transfer",
+    "Atlas-Divisible-State",
 ]
 
 # https://doc.rust-lang.org/cargo/reference/profiles.html
