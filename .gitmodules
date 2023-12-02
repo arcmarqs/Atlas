@@ -1,6 +1,6 @@
 [submodule "Atlas-Core"]
 	path = Atlas-Core
-	url = https://github.com/nuno1212s/Atlas-Core.git
+	url = https://github.com/arcmarqs/Atlas-Core
 [submodule "Atlas-Communication"]
 	path = Atlas-Communication
 	url = https://github.com/nuno1212s/Atlas-Communication.git
@@ -12,10 +12,10 @@
 	url = https://github.com/nuno1212s/Atlas-Metrics.git
 [submodule "Atlas-SMR-Execution"]
 	path = Atlas-SMR-Execution
-	url = https://github.com/nuno1212s/Atlas-SMR-Execution.git
+	url = https://github.com/arcmarqs/Atlas-SMR-Execution
 [submodule "Atlas-SMR-Application"]
 	path = Atlas-SMR-Application
-	url = https://github.com/nuno1212s/Atlas-SMR-Application.git
+	url = https://github.com/arcmarqs/Atlas-SMR-Application
 [submodule "Atlas-Log-Transfer"]
 	path = Atlas-Log-Transfer
 	url = https://github.com/nuno1212s/Atlas-Log-Transfer.git
@@ -27,10 +27,10 @@
 	url = https://github.com/nuno1212s/Atlas-Reconfiguration.git
 [submodule "Atlas-Persistent-Log"]
 	path = Atlas-Persistent-Log
-	url = https://github.com/nuno1212s/Atlas-Persistent-Log.git
+	url = https://github.com/arcmarqs/Atlas-Persistent-Log
 [submodule "Atlas-SMR-Replica"]
 	path = Atlas-SMR-Replica
-	url = https://github.com/nuno1212s/Atlas-SMR-Replica.git
+	url = https://github.com/arcmarqs/Atlas-SMR-Replica
 [submodule "Atlas-capnp"]
 	path = Atlas-capnp
 	url = https://github.com/nuno1212s/Atlas-capnp.git
