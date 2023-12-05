@@ -3,10 +3,10 @@
 	url = https://github.com/arcmarqs/Atlas-Core
 [submodule "Atlas-Communication"]
 	path = Atlas-Communication
-	url = https://github.com/nuno1212s/Atlas-Communication.git
+	url = https://github.com/arcmarqs/Atlas-Communication.git
 [submodule "Atlas-Common"]
 	path = Atlas-Common
-	url = https://github.com/nuno1212s/Atlas-Common.git
+	url = https://github.com/arcmarqs/Atlas-Common.git
 [submodule "Atlas-Metrics"]
 	path = Atlas-Metrics
 	url = https://github.com/nuno1212s/Atlas-Metrics.git
