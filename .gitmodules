@@ -9,7 +9,7 @@
 	url = https://github.com/arcmarqs/Atlas-Common.git
 [submodule "Atlas-Metrics"]
 	path = Atlas-Metrics
-	url = https://github.com/nuno1212s/Atlas-Metrics.git
+	url = https://github.com/arcmarqs/Atlas-Metrics.git
 [submodule "Atlas-SMR-Execution"]
 	path = Atlas-SMR-Execution
 	url = https://github.com/arcmarqs/Atlas-SMR-Execution
