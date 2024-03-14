@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.linkedProjects": [
+        "./Atlas-Common/Cargo.toml"
+    ]
+}
