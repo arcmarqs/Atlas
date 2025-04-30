@@ -21,7 +21,7 @@
 	url = https://github.com/nuno1212s/Atlas-Log-Transfer.git
 [submodule "Atlas-Client"]
 	path = Atlas-Client
-	url = https://github.com/nuno1212s/Atlas-Client.git
+	url = https://github.com/arcmarqs/Atlas-Client.git
 [submodule "Atlas-Reconfiguration"]
 	path = Atlas-Reconfiguration
 	url = https://github.com/nuno1212s/Atlas-Reconfiguration.git
