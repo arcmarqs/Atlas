@@ -36,7 +36,7 @@
 	url = https://github.com/nuno1212s/Atlas-capnp.git
 [submodule "Atlas-Decision-Log"]
 	path = Atlas-Decision-Log
-	url = https://github.com/nuno1212s/Atlas-Decision-Log.git
+	url = https://github.com/arcmarqs/Atlas-Decision-Log.git
 [submodule "Atlas-View-Transfer"]
 	path = Atlas-View-Transfer
 	url = https://github.com/nuno1212s/Atlas-View-Transfer.git
